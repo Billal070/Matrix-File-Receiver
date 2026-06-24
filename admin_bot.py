@@ -29,19 +29,31 @@ def pbar(val, total, w=8):
 def pct(val, total):
     return round(val / total * 100) if total else 0
 
+
+# FIXED: Submissions toggle button added on the dashboard keyboard dynamically
 def _dashboard_keyboard():
+    is_open = db.is_submissions_open()
+    status_btn = InlineKeyboardButton("🔒 Close Submissions" if is_open else "🔓 Open Submissions", callback_data="nav_toggle_subs")
+    
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("⏳ Pending", callback_data="nav_pending"), InlineKeyboardButton("📋 History", callback_data="nav_history")],
         [InlineKeyboardButton("👥 Members", callback_data="nav_members"), InlineKeyboardButton("💰 Payments", callback_data="nav_payments")],
         [InlineKeyboardButton("📊 Stats", callback_data="nav_stats"), InlineKeyboardButton("📣 Broadcast", callback_data="nav_broadcast")],
-        [InlineKeyboardButton("💸 Send Payment", callback_data="nav_sendpayment")]
+        [InlineKeyboardButton("💸 Send Payment", callback_data="nav_sendpayment")],
+        [status_btn] # New toggle button row
     ])
 
+
+# FIXED: Dashboard text updated to show current window state
 def _build_dashboard_text(stats):
     alert = f"\n🔔 *{stats['pending']} Pending!*" if stats["pending"] else ""
     t = stats["total_subs"]
+    is_open = db.is_submissions_open()
+    status_text = "🟢 OPEN" if is_open else "🔴 CLOSED"
+    
     return (
         f"〔 👨‍💼 *Admin Panel* 〕\n🔷 {BOT_NAME}\n{DIVIDER}{alert}\n\n"
+        f"📂 Submission Window: *{status_text}*\n\n"
         f"📊 *Stats:*\n  👥 Members:      *{stats['total_users']}* users\n  📁 Submissions:  *{t}* files\n\n"
         f"  ✅ Approved: {pbar(stats['approved'],t)} *{stats['approved']}* ({pct(stats['approved'],t)}%)\n"
         f"  ⏳ Pending:  {pbar(stats['pending'],t)} *{stats['pending']}* ({pct(stats['pending'],t)}%)\n"
@@ -54,6 +66,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"⛔ *Unauthorized!*\n\nID: `{update.effective_user.id}`", parse_mode="Markdown")
         return
     await update.message.reply_text(_build_dashboard_text(db.get_stats()), parse_mode="Markdown", reply_markup=_dashboard_keyboard())
+
 
 async def cb_nav(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
@@ -70,6 +83,22 @@ async def cb_nav(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data["awaiting_broadcast"] = True
     elif q.data == "nav_done":
         pass
+    
+    # FIXED: Submissions toggle handler (Saves & updates dashboard text dynamically)
+    elif q.data == "nav_toggle_subs":
+        current_status = db.is_submissions_open()
+        new_status = not current_status
+        db.set_submissions_open(new_status)
+        
+        status_word = "OPENED" if new_status else "CLOSED"
+        await q.answer(f"📂 Submissions are now {status_word}!", show_alert=True)
+        
+        stats = db.get_stats()
+        await q.edit_message_text(
+            _build_dashboard_text(stats),
+            parse_mode="Markdown",
+            reply_markup=_dashboard_keyboard()
+        )
 
 async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_admin(update.effective_user.id): await _send_stats(update.message.chat_id, context)
@@ -164,6 +193,7 @@ async def _send_payments(chat_id, context):
 # ── Payment Flow ──────────────────────────────────────────────────────────────
 
 async def _sendpayment_init(chat_id, context):
+    """Show member selection list."""
     users = db.get_all_users()
     if not users:
         await context.bot.send_message(chat_id, "👥 _No members found._", parse_mode="Markdown"); return False
@@ -176,11 +206,13 @@ async def _sendpayment_init(chat_id, context):
     await context.bot.send_message(chat_id, f"💸 *Send Payment*\n{DIVIDER}\n\nSelect a member to send payment to:", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
     return True
 
+# Entry point: /sendpayment command
 async def cmd_sendpayment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id): return ConversationHandler.END
     ok = await _sendpayment_init(update.message.chat_id, context)
     return SELECT_USER if ok else ConversationHandler.END
 
+# Entry point: Dashboard button "💸 পেমেন্ট পাঠান"
 async def cb_nav_sendpayment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     if not is_admin(q.from_user.id):
@@ -189,6 +221,7 @@ async def cb_nav_sendpayment(update: Update, context: ContextTypes.DEFAULT_TYPE)
     ok = await _sendpayment_init(q.message.chat_id, context)
     return SELECT_USER if ok else ConversationHandler.END
 
+# Entry point: Member detail "💸 পেমেন্ট পাঠান" button
 async def cb_quickpay(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     if not is_admin(q.from_user.id): await q.answer("⛔", show_alert=True); return ConversationHandler.END
@@ -297,7 +330,7 @@ async def _finalize_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await user_bot.send_message(chat_id=uid, text=user_text, parse_mode="Markdown")
     except Exception as e:
         logger.error(f"Payment notify failed: {e}")
-        await update.message.reply_text(f"⚠️ Save হয়েছে কিন্তু notify করা যায়নি!\nError: {e}")
+        await update.message.reply_text(f"⚠️ Payment saved but failed to notify user!\nError: {e}")
         return
     await update.message.reply_text(
         f"〔 ✅ *Payment Sent Successfully!* 〕\n{DIVIDER}\n\n🆔 {pay_id}\n👤 *{name}*\n💲 *{amount:,.0f} ৳*",
