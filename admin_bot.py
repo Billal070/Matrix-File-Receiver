@@ -55,7 +55,6 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await update.message.reply_text(_build_dashboard_text(db.get_stats()), parse_mode="Markdown", reply_markup=_dashboard_keyboard())
 
-# ── Dashboard nav (nav_sendpayment removed — handled by ConversationHandler) ──
 async def cb_nav(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     if not is_admin(q.from_user.id):
@@ -70,7 +69,7 @@ async def cb_nav(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(q.message.chat_id, f"📣 *Broadcast*\n{DIVIDER}\n\nWrite your message.\n\n_To cancel, write /cancel._", parse_mode="Markdown")
         context.user_data["awaiting_broadcast"] = True
     elif q.data == "nav_done":
-        pass  # Just a display button, do nothing
+        pass
 
 async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_admin(update.effective_user.id): await _send_stats(update.message.chat_id, context)
@@ -165,7 +164,6 @@ async def _send_payments(chat_id, context):
 # ── Payment Flow ──────────────────────────────────────────────────────────────
 
 async def _sendpayment_init(chat_id, context):
-    """Show member selection list."""
     users = db.get_all_users()
     if not users:
         await context.bot.send_message(chat_id, "👥 _No members found._", parse_mode="Markdown"); return False
@@ -178,13 +176,11 @@ async def _sendpayment_init(chat_id, context):
     await context.bot.send_message(chat_id, f"💸 *Send Payment*\n{DIVIDER}\n\nSelect a member to send payment to:", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb))
     return True
 
-# Entry point: /sendpayment command
 async def cmd_sendpayment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id): return ConversationHandler.END
     ok = await _sendpayment_init(update.message.chat_id, context)
     return SELECT_USER if ok else ConversationHandler.END
 
-# Entry point: Dashboard button "💸 পেমেন্ট পাঠান"
 async def cb_nav_sendpayment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     if not is_admin(q.from_user.id):
@@ -193,7 +189,6 @@ async def cb_nav_sendpayment(update: Update, context: ContextTypes.DEFAULT_TYPE)
     ok = await _sendpayment_init(q.message.chat_id, context)
     return SELECT_USER if ok else ConversationHandler.END
 
-# Entry point: Member detail "💸 পেমেন্ট পাঠান" button
 async def cb_quickpay(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     if not is_admin(q.from_user.id): await q.answer("⛔", show_alert=True); return ConversationHandler.END
@@ -206,7 +201,7 @@ async def cb_quickpay(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["pay_name"] = user["full_name"] if user else str(uid)
     await q.message.reply_text(
         f"✅ Selected: *{context.user_data['pay_name']}*\n\n💲 *Enter the amount to send:* (Digits only, e.g. 5000)",
-        parse_mode="Markdown",
+        parse_mode="Markdown"
     )
     return ENTER_AMOUNT
 
@@ -219,7 +214,10 @@ async def cb_select_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not sel: await q.edit_message_text("❌ Error."); return ConversationHandler.END
     context.user_data["pay_uid"] = int(uid_str)
     context.user_data["pay_name"] = sel["full_name"]
-    await q.edit_message_text(f"✅ Selected: *{sel['full_name']}*\n\n💲 *How much to send?*", parse_mode="Markdown")
+    await q.edit_message_text(
+        f"✅ Selected: *{sel['full_name']}*\n\n💲 *How much to send?*",
+        parse_mode="Markdown"
+    )
     return ENTER_AMOUNT
 
 async def enter_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -232,7 +230,7 @@ async def enter_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ENTER_AMOUNT
     context.user_data["pay_amount"] = amount
     await update.message.reply_text(
-        f"💲 Amount: *{amount:,.0f} ৳* ✅\n\n📝 *Do you want to write a note?*\n_(e.g., bKash number, Nagad reference, etc.)_",
+        f"💲 Amount: *{amount:,.0f} ৳* ✅\n\n📝 *Do you want to add a note?*\n_(bKash number, Nagad reference, etc.)_",
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⏭️ Skip Note", callback_data="note_skip")]])
     )
@@ -299,10 +297,10 @@ async def _finalize_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await user_bot.send_message(chat_id=uid, text=user_text, parse_mode="Markdown")
     except Exception as e:
         logger.error(f"Payment notify failed: {e}")
-        await update.message.reply_text(f"⚠️ Payment saved but failed to notify user!\nError: {e}")
+        await update.message.reply_text(f"⚠️ Save হয়েছে কিন্তু notify করা যায়নি!\nError: {e}")
         return
     await update.message.reply_text(
-        f"〔 ✅ *Payment Sent successfully!* 〕\n{DIVIDER}\n\n🆔 {pay_id}\n👤 *{name}*\n💲 *{amount:,.0f} ৳*",
+        f"〔 ✅ *Payment Sent Successfully!* 〕\n{DIVIDER}\n\n🆔 {pay_id}\n👤 *{name}*\n💲 *{amount:,.0f} ৳*",
         parse_mode="Markdown"
     )
     context.user_data.clear()
@@ -329,7 +327,7 @@ async def do_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 except: failed += 1
     except Exception as e: logger.error(f"Broadcast failed: {e}")
     await proc.delete()
-    await update.message.reply_text(f"f'✅ *Broadcast Completed!*\n\n✅ Success: {success}\n❌ Failed: {failed}", parse_mode="Markdown")
+    await update.message.reply_text(f"✅ *Broadcast Completed!*\n\n✅ Success: {success}\n❌ Failed: {failed}", parse_mode="Markdown")
     return ConversationHandler.END
 
 async def cancel_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -369,4 +367,74 @@ async def cb_submission(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as ex: logger.error(f"Markup edit failed: {ex}")
 
 # ── Debug ─────────────────────────────────────────────────────────────────────
-async def cmd_testnotify(update: Update, co
+async def cmd_testnotify(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    await update.message.reply_text("🔍 Testing... wait.")
+    info = f"📋 <b>Check:</b>\nYour ID: <code>{uid}</code>\nADMIN_TELEGRAM_ID: <code>{ADMIN_TELEGRAM_ID}</code>\nMatch: {'✅' if str(uid) == str(ADMIN_TELEGRAM_ID) else '❌ MISMATCH!'}"
+    await update.message.reply_text(info, parse_mode="HTML")
+    try:
+        async with Bot(token=USER_BOT_TOKEN) as test_bot:
+            bot_info = await test_bot.get_me()
+            await update.message.reply_text(f"✅ USER_BOT: <b>{bot_info.full_name}</b>", parse_mode="HTML")
+            try:
+                await test_bot.send_message(chat_id=ADMIN_TELEGRAM_ID, text="✅ Test notification working!")
+                await update.message.reply_text("✅ Notification sent successfully!")
+            except Exception as e:
+                await update.message.reply_text(f"❌ Send error:\n<code>{e}</code>", parse_mode="HTML")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Token error:\n<code>{e}</code>", parse_mode="HTML")
+
+async def cmd_history_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if is_admin(update.effective_user.id): await _send_history(update.message.chat_id, context)
+async def cmd_members_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if is_admin(update.effective_user.id): await _send_members(update.message.chat_id, context)
+async def cmd_payments_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if is_admin(update.effective_user.id): await _send_payments(update.message.chat_id, context)
+
+# ── App Factory ───────────────────────────────────────────────────────────────
+def create_admin_app():
+    app = Application.builder().token(ADMIN_BOT_TOKEN).build()
+
+    pay_conv = ConversationHandler(
+        entry_points=[
+            CommandHandler("sendpayment", cmd_sendpayment),
+            CallbackQueryHandler(cb_nav_sendpayment, pattern=r"^nav_sendpayment$"),  # Dashboard button ✅
+            CallbackQueryHandler(cb_quickpay, pattern=r"^quickpay_"),               # Member detail button ✅
+        ],
+        states={
+            SELECT_USER: [CallbackQueryHandler(cb_select_user, pattern=r"^(payto_|pay_cancel)")],
+            ENTER_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, enter_amount)],
+            ENTER_NOTE: [
+                CallbackQueryHandler(cb_note_skip, pattern=r"^note_skip$"),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, enter_note)
+            ],
+            ATTACH_FILE: [
+                CommandHandler("skip", cmd_skip_file),
+                MessageHandler(filters.Document.ALL | filters.PHOTO, attach_file)
+            ],
+        },
+        fallbacks=[CommandHandler("cancel", cmd_cancel_pay), CommandHandler("start", cmd_start)],
+        per_message=False, allow_reentry=True
+    )
+
+    bc_conv = ConversationHandler(
+        entry_points=[CommandHandler("broadcast", cmd_broadcast)],
+        states={BROADCAST_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, do_broadcast)]},
+        fallbacks=[CommandHandler("cancel", cancel_broadcast)],
+        per_message=False, allow_reentry=True
+    )
+
+    app.add_handler(pay_conv)
+    app.add_handler(bc_conv)
+    app.add_handler(CommandHandler("myid", cmd_myid))
+    app.add_handler(CommandHandler("testnotify", cmd_testnotify))
+    app.add_handler(CommandHandler("start", cmd_start))
+    app.add_handler(CommandHandler("stats", cmd_stats))
+    app.add_handler(CommandHandler("pending", cmd_pending))
+    app.add_handler(CommandHandler("history", cmd_history_cmd))
+    app.add_handler(CommandHandler("members", cmd_members_cmd))
+    app.add_handler(CommandHandler("payments", cmd_payments_cmd))
+    app.add_handler(CallbackQueryHandler(cb_nav, pattern=r"^nav_"))
+    app.add_handler(CallbackQueryHandler(cb_submission, pattern=r"^(approve|decline)_"))
+    app.add_handler(CallbackQueryHandler(cb_member_detail, pattern=r"^member_\d+$"))
+    return app
