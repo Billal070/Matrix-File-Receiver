@@ -1,5 +1,4 @@
 import logging, os, io
-from datetime import datetime
 from telegram import Update, Bot, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ConversationHandler, filters, ContextTypes
 import database as db
@@ -80,7 +79,9 @@ async def cb_nav(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif q.data == "nav_payments": await _send_payments(q.message.chat_id, context)
     elif q.data == "nav_stats": await _send_stats(q.message.chat_id, context)
     elif q.data == "nav_broadcast":
-        await context.bot.send_message(q.message.chat_id, f"📣 *Broadcast*\n{DIVIDER}\n\nWrite your message.\n\n_To cancel, write /cancel._", parse_mode="Markdown")
+        # Broadcast cancel inline button added
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="bc_cancel")]])
+        await context.bot.send_message(q.message.chat_id, f"📣 *Broadcast*\n{DIVIDER}\n\nWrite your broadcast message.\n\n_Press Cancel to abort._", parse_mode="Markdown", reply_markup=kb)
         context.user_data["awaiting_broadcast"] = True
     elif q.data == "nav_done":
         pass
@@ -106,7 +107,7 @@ async def cb_nav(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.edit_message_text(_build_dashboard_text(stats), parse_mode="Markdown", reply_markup=_dashboard_keyboard())
 
 
-# ── Manage Tasks Menu Helper (FIXED: OperationalError Removed) ──
+# Manage Tasks Menu Helper (OperationalError Removed)
 async def _show_manage_tasks_menu(chat_id, context):
     db_conn = db._conn()
     unique_tasks_rows = db_conn.execute("SELECT id, task_name FROM tasks").fetchall()
@@ -133,7 +134,7 @@ async def _show_manage_tasks_menu(chat_id, context):
     await context.bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb_buttons))
 
 
-# ── Delete Task Callback ──
+# Delete Task Callback
 async def cb_delete_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     if not is_admin(q.from_user.id): await q.answer("⛔"); return
@@ -152,6 +153,7 @@ async def cb_delete_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_admin(update.effective_user.id): await _send_stats(update.message.chat_id, context)
 
+# UPDATED: Back to dashboard button added
 async def _send_stats(chat_id, context):
     s = db.get_stats()
     t = s["total_subs"]
@@ -163,7 +165,8 @@ async def _send_stats(chat_id, context):
         f"   ❌ Declined: *{s['declined']}*  {pbar(s['declined'],t)} {pct(s['declined'],t)}%\n\n"
         f"💰 *Payments:* *{s['total_payments']}* times\n   Total Paid: *{s['total_paid']:,.0f} ৳*\n\n{DIVIDER}"
     )
-    await context.bot.send_message(chat_id, text, parse_mode="Markdown")
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Back to Dashboard", callback_data="nav_back_dashboard")]])
+    await context.bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=kb)
 
 async def cmd_pending(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_admin(update.effective_user.id): await _send_pending(update.message.chat_id, context)
@@ -195,6 +198,7 @@ async def _send_history(chat_id, context):
 async def cmd_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_admin(update.effective_user.id): await _send_members(update.message.chat_id, context)
 
+# UPDATED: Back to dashboard button added
 async def _send_members(chat_id, context):
     users = db.get_all_users()
     if not users:
@@ -205,8 +209,10 @@ async def _send_members(chat_id, context):
         ms = db.get_member_stats(u["user_id"])
         text += f"*{i}. {u['full_name']}* (@{u['username'] or '—'})\n   📁 {len(ms['subs'])} Subs | 💰 *{ms['total_paid']:,.0f} ৳*\n\n"
         keyboard.append([InlineKeyboardButton(f"👤 {u['full_name']}", callback_data=f"member_{u['user_id']}")])
+    keyboard.append([InlineKeyboardButton("◀️ Back to Dashboard", callback_data="nav_back_dashboard")]) # Back Button ✅
     await context.bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
 
+# UPDATED: Back buttons added
 async def cb_member_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     if not is_admin(q.from_user.id): await q.answer("⛔", show_alert=True); return
@@ -222,12 +228,16 @@ async def cb_member_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for sub in ms["subs"][:5]:
             em = STATUS_EMOJI.get(sub["status"], "❓")
             text += f"   {em} `{sub['sub_id']}` — {fmt_dt(sub['submitted_at'])}\n"
-    kb = InlineKeyboardMarkup([[InlineKeyboardButton("💸 Send Payment", callback_data=f"quickpay_{uid}")]])
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("💸 Send Payment", callback_data=f"quickpay_{uid}")],
+        [InlineKeyboardButton("◀️ Back to Members", callback_data="nav_members"), InlineKeyboardButton("◀️ Back to Dashboard", callback_data="nav_back_dashboard")]
+    ])
     await q.message.reply_text(text, parse_mode="Markdown", reply_markup=kb)
 
 async def cmd_payments(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_admin(update.effective_user.id): await _send_payments(update.message.chat_id, context)
 
+# UPDATED: Back to dashboard button added
 async def _send_payments(chat_id, context):
     pays = db.get_all_payments(limit=20)
     if not pays:
@@ -237,7 +247,8 @@ async def _send_payments(chat_id, context):
     for pay in pays:
         text += f"💵 *{pay['pay_id']}*\n   👤 {pay['full_name']}\n   💲 *{pay['amount']:,.0f} ৳* — {fmt_dt(pay['sent_at'])}\n\n"
     text += f"{DIVIDER}\n💎 *Grand Total: {total:,.0f} ৳*"
-    await context.bot.send_message(chat_id, text, parse_mode="Markdown")
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Back to Dashboard", callback_data="nav_back_dashboard")]])
+    await context.bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=kb)
 
 # ── Payment Flow ──────────────────────────────────────────────────────────────
 
@@ -281,27 +292,36 @@ async def cb_quickpay(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["pay_users"] = {str(u["user_id"]): dict(u) for u in users}
     context.user_data["pay_uid"] = uid
     context.user_data["pay_name"] = user["full_name"] if user else str(uid)
+    
+    # Inline Cancel button added under money input
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="pay_cancel")]])
     await q.message.reply_text(
-        f"✅ Selected: *{context.user_data['pay_name']}*\n\n💲 *Enter the amount to send:* (Digits only, e.g. 5000)",
-        parse_mode="Markdown"
+        f"Selected: *{context.user_data['pay_name']}*\n\n💲 *Enter the amount to send:* (Digits only, e.g. 5000)",
+        parse_mode="Markdown",
+        reply_markup=kb
     )
     return ENTER_AMOUNT
 
+# UPDATED: Select user cancel inline handler
 async def cb_select_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query; await q.answer()
     if q.data == "pay_cancel":
-        await q.edit_message_text("❌ _Cancelled._"); return ConversationHandler.END
+        await q.edit_message_text("❌ _Payment cancelled._", parse_mode="Markdown"); return ConversationHandler.END
     uid_str = q.data.replace("payto_", "")
     sel = context.user_data.get("pay_users", {}).get(uid_str)
     if not sel: await q.edit_message_text("❌ Error."); return ConversationHandler.END
     context.user_data["pay_uid"] = int(uid_str)
     context.user_data["pay_name"] = sel["full_name"]
+    
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="pay_cancel")]])
     await q.edit_message_text(
         f"✅ Selected: *{sel['full_name']}*\n\n💲 *How much to send?*",
-        parse_mode="Markdown"
+        parse_mode="Markdown",
+        reply_markup=kb
     )
     return ENTER_AMOUNT
 
+# UPDATED: Inline Cancel button added
 async def enter_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
     raw = update.message.text.strip().replace(",", "").replace("৳", "").replace(" ", "")
     try:
@@ -311,27 +331,45 @@ async def enter_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ *Please enter a valid amount.*\n_Example: 5000_", parse_mode="Markdown")
         return ENTER_AMOUNT
     context.user_data["pay_amount"] = amount
+    
+    # Skip and Cancel buttons in line
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("⏭️ Skip Note", callback_data="note_skip")],
+        [InlineKeyboardButton("❌ Cancel", callback_data="pay_cancel")]
+    ])
     await update.message.reply_text(
         f"💲 Amount: *{amount:,.0f} ৳* ✅\n\n📝 *Do you want to add a note?*\n_(bKash number, Nagad reference, etc.)_",
         parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⏭️ Skip Note", callback_data="note_skip")]])
+        reply_markup=kb
     )
     return ENTER_NOTE
 
+# UPDATED: Skip and Cancel buttons in line
 async def cb_note_skip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query; await q.answer()
     context.user_data["pay_note"] = ""
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("⏭️ Skip File", callback_data="file_skip")],
+        [InlineKeyboardButton("❌ Cancel", callback_data="pay_cancel")]
+    ])
     await q.edit_message_text(
-        f"💲 *{context.user_data['pay_amount']:,.0f} ৳* | 📝 Note: _None_\n\n📎 *Send a file/receipt or write /skip.*",
-        parse_mode="Markdown"
+        f"💲 *{context.user_data['pay_amount']:,.0f} ৳* | 📝 Note: _None_\n\n📎 *Send a file/receipt or click skip.*",
+        parse_mode="Markdown",
+        reply_markup=kb
     )
     return ATTACH_FILE
 
+# UPDATED: Skip and Cancel buttons in line
 async def enter_note(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["pay_note"] = update.message.text.strip()
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("⏭️ Skip File", callback_data="file_skip")],
+        [InlineKeyboardButton("❌ Cancel", callback_data="pay_cancel")]
+    ])
     await update.message.reply_text(
-        f"💲 *{context.user_data['pay_amount']:,.0f} ৳* | 📝 _{context.user_data['pay_note']}_\n\n📎 *Send a file/receipt or write /skip.*",
-        parse_mode="Markdown"
+        f"💲 *{context.user_data['pay_amount']:,.0f} ৳* | 📝 _{context.user_data['pay_note']}_\n\n📎 *Send a file/receipt or click skip.*",
+        parse_mode="Markdown",
+        reply_markup=kb
     )
     return ATTACH_FILE
 
@@ -353,12 +391,27 @@ async def cmd_skip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _finalize_payment(update, context)
     return ConversationHandler.END
 
+# Inline file skip handler ✅
+async def cb_skip_file_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query; await q.answer()
+    context.user_data["pay_file"] = None
+    await _finalize_payment(q, context)
+    return ConversationHandler.END
+
 async def cmd_cancel_pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     await update.message.reply_text("❌ _Payment cancelled._", parse_mode="Markdown")
     return ConversationHandler.END
 
-async def _finalize_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# Universal Inline cancel callback handler for payments ✅
+async def cb_cancel_pay_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query; await q.answer()
+    context.user_data.clear()
+    await q.edit_message_text("❌ _Payment cancelled successfully._")
+    return ConversationHandler.END
+
+# Updated context message sender helper
+async def _finalize_payment(update, context: ContextTypes.DEFAULT_TYPE):
     uid, name = context.user_data["pay_uid"], context.user_data["pay_name"]
     amount, note = context.user_data["pay_amount"], context.user_data.get("pay_note", "")
     fid = context.user_data.get("pay_file")
@@ -379,10 +432,11 @@ async def _finalize_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await user_bot.send_message(chat_id=uid, text=user_text, parse_mode="Markdown")
     except Exception as e:
         logger.error(f"Payment notify failed: {e}")
-        await update.message.reply_text(f"⚠️ Payment saved but failed to notify user!\nError: {e}")
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=f"⚠️ Payment saved but failed to notify user!\nError: {e}")
         return
-    await update.message.reply_text(
-        f"〔 ✅ *Payment Sent Successfully!* 〕\n{DIVIDER}\n\n🆔 {pay_id}\n👤 *{name}*\n💲 *{amount:,.0f} ৳*",
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text=f"〔 ✅ *Payment Sent Successfully!* 〕\n{DIVIDER}\n\n🆔 {pay_id}\n👤 *{name}*\n💲 *{amount:,.0f} ৳*",
         parse_mode="Markdown"
     )
     context.user_data.clear()
@@ -390,7 +444,9 @@ async def _finalize_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ── Broadcast ─────────────────────────────────────────────────────────────────
 async def cmd_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id): return ConversationHandler.END
-    await update.message.reply_text(f"📣 *Broadcast*\n{DIVIDER}\n\nWrite broadcast message:\n_Cancel: /cancel_", parse_mode="Markdown")
+    # Cancel inline button added for Broadcast ✅
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="bc_cancel")]])
+    await update.message.reply_text(f"📣 *Broadcast*\n{DIVIDER}\n\nWrite broadcast message:\n_Press Cancel to abort._", parse_mode="Markdown", reply_markup=kb)
     return BROADCAST_TEXT
 
 async def do_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -415,6 +471,11 @@ async def do_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cancel_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("❌ _Cancelled._", parse_mode="Markdown"); return ConversationHandler.END
 
+# Inline broadcast cancel callback handler ✅
+async def cb_cancel_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query; await q.answer()
+    await q.edit_message_text("❌ _Broadcast cancelled successfully._")
+    return ConversationHandler.END
 
 # ── Manage Tasks (Conversation handlers) ──────────────────────────────────────
 async def cb_add_task_init(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -422,11 +483,14 @@ async def cb_add_task_init(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(q.from_user.id): await q.answer("⛔"); return ConversationHandler.END
     await q.answer()
     
+    # Cancel button added ✅
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="task_cancel")]])
     await q.message.reply_text(
         f"📝 *Add New Work Type*\n{DIVIDER}\n\n"
         f"Please enter the name of the new task/work type:\n"
         f"_(e.g., Lead Generation, YouTube Review, Data Entry)_",
-        parse_mode="Markdown"
+        parse_mode="Markdown",
+        reply_markup=kb
     )
     return ENTER_TASK_NAME
 
@@ -449,6 +513,13 @@ async def enter_task_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_cancel_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("❌ _Cancelled task adding._", parse_mode="Markdown")
     await _show_manage_tasks_menu(update.message.chat_id, context)
+    return ConversationHandler.END
+
+# Inline task cancel handler ✅
+async def cb_cancel_task_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query; await q.answer()
+    await q.edit_message_text("❌ _Task creation cancelled._")
+    await _show_manage_tasks_menu(q.message.chat_id, context)
     return ConversationHandler.END
 
 
@@ -522,13 +593,19 @@ def create_admin_app():
         ],
         states={
             SELECT_USER: [CallbackQueryHandler(cb_select_user, pattern=r"^(payto_|pay_cancel)")],
-            ENTER_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, enter_amount)],
+            ENTER_AMOUNT: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, enter_amount),
+                CallbackQueryHandler(cb_cancel_pay_callback, pattern=r"^pay_cancel$") # Cancel button ✅
+            ],
             ENTER_NOTE: [
                 CallbackQueryHandler(cb_note_skip, pattern=r"^note_skip$"),
+                CallbackQueryHandler(cb_cancel_pay_callback, pattern=r"^pay_cancel$"), # Cancel button ✅
                 MessageHandler(filters.TEXT & ~filters.COMMAND, enter_note)
             ],
             ATTACH_FILE: [
                 CommandHandler("skip", cmd_skip_file),
+                CallbackQueryHandler(cb_skip_file_callback, pattern=r"^file_skip$"),  # Skip button ✅
+                CallbackQueryHandler(cb_cancel_pay_callback, pattern=r"^pay_cancel$"), # Cancel button ✅
                 MessageHandler(filters.Document.ALL | filters.PHOTO, attach_file)
             ],
         },
@@ -538,7 +615,12 @@ def create_admin_app():
 
     bc_conv = ConversationHandler(
         entry_points=[CommandHandler("broadcast", cmd_broadcast)],
-        states={BROADCAST_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, do_broadcast)]},
+        states={
+            BROADCAST_TEXT: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, do_broadcast),
+                CallbackQueryHandler(cb_cancel_broadcast, pattern=r"^bc_cancel$") # Broadcast Cancel button ✅
+            ]
+        },
         fallbacks=[CommandHandler("cancel", cancel_broadcast)],
         per_message=False, allow_reentry=True
     )
@@ -547,7 +629,10 @@ def create_admin_app():
     task_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(cb_add_task_init, pattern=r"^add_task_init$")],
         states={
-            ENTER_TASK_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, enter_task_name)],
+            ENTER_TASK_NAME: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, enter_task_name),
+                CallbackQueryHandler(cb_cancel_task_callback, pattern=r"^task_cancel$") # Task Cancel button ✅
+            ],
         },
         fallbacks=[CommandHandler("cancel", cmd_cancel_task)],
         per_message=False, allow_reentry=True
@@ -555,7 +640,7 @@ def create_admin_app():
 
     app.add_handler(pay_conv)
     app.add_handler(bc_conv)
-    app.add_handler(task_conv) # Task manager handler registered ✅
+    app.add_handler(task_conv) 
     
     app.add_handler(CommandHandler("myid", cmd_myid))
     app.add_handler(CommandHandler("testnotify", cmd_testnotify))
@@ -568,5 +653,5 @@ def create_admin_app():
     app.add_handler(CallbackQueryHandler(cb_nav, pattern=r"^nav_"))
     app.add_handler(CallbackQueryHandler(cb_submission, pattern=r"^(approve|decline)_"))
     app.add_handler(CallbackQueryHandler(cb_member_detail, pattern=r"^member_\d+$"))
-    app.add_handler(CallbackQueryHandler(cb_delete_task, pattern=r"^deltask_\d+$")) # Delete task callback ✅
+    app.add_handler(CallbackQueryHandler(cb_delete_task, pattern=r"^deltask_\d+$")) 
     return app
