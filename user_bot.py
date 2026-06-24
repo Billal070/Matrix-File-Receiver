@@ -17,7 +17,7 @@ from config import USER_BOT_TOKEN, ADMIN_BOT_TOKEN, ADMIN_TELEGRAM_ID, BOT_NAME,
 
 logger = logging.getLogger(__name__)
 
-# ── Persistent Menu ────────────────────────────────────────────────────────────
+# ── Persistent Menu (Translated to English) ────────────────────────────────────
 MENU = ReplyKeyboardMarkup(
     [
         [KeyboardButton("📁 Submit File"),     KeyboardButton("📊 My Submissions")],
@@ -110,7 +110,7 @@ async def btn_submit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     kb_buttons = []
     for task in active_tasks:
         kb_buttons.append([InlineKeyboardButton(f"📂 {task['task_name']}", callback_data=f"seltask_{task['id']}")])
-    kb_buttons.append([InlineKeyboardButton("❌ Cancel", callback_data="cancel_submit")]) # Cancel Button ✅
+    kb_buttons.append([InlineKeyboardButton("❌ Cancel", callback_data="cancel_submit")])
 
     markup = InlineKeyboardMarkup(kb_buttons)
 
@@ -160,11 +160,11 @@ async def cb_cancel_submit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
     user_id = q.from_user.id
-    user_states[user_id] = None # Reset State ✅
+    user_states[user_id] = None # Reset State
     await q.message.reply_text("❌ _Submission cancelled successfully._", parse_mode="Markdown", reply_markup=MENU)
 
 
-# ── My Submissions ─────────────────────────────────────────────────────────────
+# ── My Submissions (FIXED: Row to Dict Conversion) ─────────────────────────────
 async def btn_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _show_status(update)
 
@@ -199,17 +199,18 @@ async def _show_status(update: Update):
     )
 
     for sub in subs[:10]:
-        em   = STATUS_EMOJI.get(sub["status"], "❓")
-        s_bn = STATUS_BN.get(sub["status"], sub["status"])
-        task_info = f" ({sub.get('task_name', 'General')})" if sub.get('task_name') else ""
+        sub_dict = dict(sub) # Row অবজেক্টকে ডিকশনারিতে কনভার্ট করা হয়েছে ✅
+        em   = STATUS_EMOJI.get(sub_dict["status"], "❓")
+        s_bn = STATUS_BN.get(sub_dict["status"], sub_dict["status"])
+        task_info = f" ({sub_dict.get('task_name', 'General')})" if sub_dict.get('task_name') else ""
         text += (
-            f"{em} *{sub['sub_id']}*{task_info}\n"
-            f"   📄 `{sub['file_name']}`\n"
-            f"   📅 {fmt_dt(sub['submitted_at'])}\n"
+            f"{em} *{sub_dict['sub_id']}*{task_info}\n"
+            f"   📄 `{sub_dict['file_name']}`\n"
+            f"   📅 {fmt_dt(sub_dict['submitted_at'])}\n"
             f"   📌 _{s_bn}_\n"
         )
-        if sub["admin_note"]:
-            text += f"   💬 {sub['admin_note']}\n"
+        if sub_dict["admin_note"]:
+            text += f"   💬 {sub_dict['admin_note']}\n"
         text += "\n"
 
     if total > 10:
@@ -261,7 +262,7 @@ async def _show_payments(update: Update):
     await update.message.reply_text(text, parse_mode="Markdown")
 
 
-# ── My Account ─────────────────────────────────────────────────────────────────
+# ── My Account (FIXED: Row to Dict Conversion) ─────────────────────────────────
 async def btn_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _show_account(update)
 
@@ -276,7 +277,6 @@ async def _show_account(update: Update):
         db.register_user(user.id, user.username, user.full_name)
         db_user = db.get_user(user.id)
 
-    # Data
     subs     = db.get_user_submissions(user.id)
     pays     = db.get_user_payments(user.id)
     total_s  = len(subs)
@@ -293,7 +293,6 @@ async def _show_account(update: Update):
         f"〔 👤 *My Account* 〕\n"
         f"{DIVIDER}\n\n"
 
-        # ── Profile
         f"🙍 *Name:*     {user.full_name}\n"
         f"🔗 *Username:* @{user.username or '—'}\n"
         f"🪪 *ID:*      `{user.id}`\n"
@@ -302,7 +301,6 @@ async def _show_account(update: Update):
 
         f"{DIVIDER}\n\n"
 
-        # ── Submissions
         f"📊 *Submission Summary:*\n"
         f"  📦 Total:        *{total_s}*\n"
         f"  ✅ Approved:     *{approved}*\n"
@@ -313,15 +311,15 @@ async def _show_account(update: Update):
     )
 
     if last_sub:
-        em = STATUS_EMOJI.get(last_sub["status"], "❓")
+        last_sub_dict = dict(last_sub) # Row অবজেক্টকে ডিকশনারিতে কনভার্ট করা হয়েছে ✅
+        em = STATUS_EMOJI.get(last_sub_dict["status"], "❓")
         text += (
             f"  🕐 Latest Submission:\n"
-            f"  {em} `{last_sub['sub_id']}` — _{STATUS_BN.get(last_sub['status'], '')}_\n\n"
+            f"  {em} `{last_sub_dict['sub_id']}` — {fmt_dt(last_sub_dict['submitted_at'])}\n"
         )
 
     text += f"{DIVIDER}\n\n"
 
-    # ── Payments
     text += (
         f"💰 *Payment Summary:*\n"
         f"  💵 Total Transactions: *{len(pays)}* times\n"
@@ -369,10 +367,11 @@ async def _show_status_from_query(q):
         f"📦 Total: *{total}*  ✅ *{approved}*  ⏳ *{pending}*  ❌ *{declined}*\n\n{DIVIDER}\n\n"
     )
     for sub in subs[:10]:
-        em   = STATUS_EMOJI.get(sub["status"], "❓")
-        s_bn = STATUS_BN.get(sub["status"], sub["status"])
-        task_info = f" ({sub.get('task_name', 'General')})" if sub.get('task_name') else ""
-        text += f"{em} *{sub['sub_id']}*{task_info}\n   📄 `{sub['file_name']}`\n   📌 _{s_bn}_\n\n"
+        sub_dict = dict(sub) # Row অবজেক্টকে ডিকশনারিতে কনভার্ট করা হয়েছে ✅
+        em   = STATUS_EMOJI.get(sub_dict["status"], "❓")
+        s_bn = STATUS_BN.get(sub_dict["status"], sub_dict["status"])
+        task_info = f" ({sub_dict.get('task_name', 'General')})" if sub_dict.get('task_name') else ""
+        text += f"{em} *{sub_dict['sub_id']}*{task_info}\n   📄 `{sub_dict['file_name']}`\n   📌 _{s_bn}_\n\n"
     await q.message.reply_text(text, parse_mode="Markdown")
 
 async def _show_payments_from_query(q):
@@ -589,6 +588,6 @@ def create_user_app():
     # Inline buttons callbacks
     app.add_handler(CallbackQueryHandler(cb_account, pattern=r"^acc_"))
     app.add_handler(CallbackQueryHandler(cb_select_task, pattern=r"^seltask_")) 
-    app.add_handler(CallbackQueryHandler(cb_cancel_submit, pattern=r"^cancel_submit$")) # Cancel Callback ✅
+    app.add_handler(CallbackQueryHandler(cb_cancel_submit, pattern=r"^cancel_submit$")) # Cancel Callback
 
     return app
