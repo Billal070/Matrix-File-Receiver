@@ -17,7 +17,7 @@ from config import USER_BOT_TOKEN, ADMIN_BOT_TOKEN, ADMIN_TELEGRAM_ID, BOT_NAME,
 
 logger = logging.getLogger(__name__)
 
-# ── Persistent Menu (Translated to English) ────────────────────────────────────
+# ── Persistent Menu ────────────────────────────────────────────────────────────
 MENU = ReplyKeyboardMarkup(
     [
         [KeyboardButton("📁 Submit File"),     KeyboardButton("📊 My Submissions")],
@@ -82,6 +82,21 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ── Submit File ────────────────────────────────────────────────────────────────
 async def btn_submit(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # বাটন চাপলে সাবমিশন চেক করা হচ্ছে
+    if not db.is_submissions_open():
+        await update.message.reply_text(
+            f"⚠️ *Submissions are Closed!*\n"
+            f"{DIVIDER}\n\n"
+            f"We are currently not accepting new file submissions at this time.\n\n"
+            f"📌 *Why is this closed?*\n"
+            f"  • The admin has paused the submission window.\n"
+            f"  • Existing files are currently under review.\n\n"
+            f"📢 _You will be notified once submissions are open again._\n"
+            f"Thank you for your cooperation! 🙏",
+            parse_mode="Markdown",
+        )
+        return
+
     await update.message.reply_text(
         f"📁 *Submit File*\n"
         f"{DIVIDER}\n\n"
@@ -357,6 +372,21 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if not db.get_user(user.id):
         db.register_user(user.id, user.username, user.full_name)
+
+    # ইউজার সরাসরি ফাইল পাঠালেও সাবমিশন বন্ধ আছে কিনা চেক হবে
+    if not db.is_submissions_open():
+        await update.message.reply_text(
+            f"⚠️ *Submissions are Closed!*\n"
+            f"{DIVIDER}\n\n"
+            f"We are currently not accepting new file submissions at this time.\n\n"
+            f"📌 *Why is this closed?*\n"
+            f"  • The admin has paused the submission window.\n"
+            f"  • Existing files are currently under review.\n\n"
+            f"📢 _You will be notified once submissions are open again._\n"
+            f"Thank you for your cooperation! 🙏",
+            parse_mode="Markdown",
+        )
+        return
 
     doc   = update.message.document
     fname = doc.file_name or ""
