@@ -1,6 +1,6 @@
 import logging, os, io
 from datetime import datetime
-from telegram import Update, Bot, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, Bot, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ConversationHandler, filters, ContextTypes
 import database as db
 from config import ADMIN_BOT_TOKEN, USER_BOT_TOKEN, ADMIN_TELEGRAM_ID, BOT_NAME, DIVIDER
@@ -11,6 +11,16 @@ ENTER_TASK_NAME = range(5, 6) # State for adding new task
 BROADCAST_TEXT = 10
 STATUS_EMOJI = {"pending": "⏳", "approved": "✅", "declined": "❌"}
 
+# ── 4 Primary Reply Keyboard Buttons for Admin ───────────────────────────────
+ADMIN_MENU = ReplyKeyboardMarkup(
+    [
+        [KeyboardButton("📊 Dashboard"), KeyboardButton("📈 Analytics")],
+        [KeyboardButton("💳 Payments"), KeyboardButton("⚙️ Settings")]
+    ],
+    resize_keyboard=True,
+    is_persistent=True,
+)
+
 def is_admin(uid):
     try: return int(uid) == int(ADMIN_TELEGRAM_ID)
     except: return str(uid) == str(ADMIN_TELEGRAM_ID)
@@ -19,6 +29,7 @@ async def cmd_myid(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"🪪 *Telegram ID:*\n`{update.effective_user.id}`\n\n_Railway variable: ADMIN_TELEGRAM_ID_", parse_mode="Markdown")
 
 def fmt_dt(s):
+    from datetime import datetime
     try: return datetime.fromisoformat(s).strftime("%d %b %Y  %I:%M %p")
     except: return s or "N/A"
 
@@ -31,18 +42,10 @@ def pct(val, total):
     return round(val / total * 100) if total else 0
 
 
-# Admin Menu Keyboard with "Manage Works" option
+# Dashboard inline buttons
 def _dashboard_keyboard():
-    is_open = db.is_submissions_open()
-    status_btn = InlineKeyboardButton("🔒 Close Submissions" if is_open else "🔓 Open Submissions", callback_data="nav_toggle_subs")
-    
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("⏳ Pending", callback_data="nav_pending"), InlineKeyboardButton("📋 History", callback_data="nav_history")],
-        [InlineKeyboardButton("👥 Members", callback_data="nav_members"), InlineKeyboardButton("💰 Payments", callback_data="nav_payments")],
-        [InlineKeyboardButton("📊 Stats", callback_data="nav_stats"), InlineKeyboardButton("📣 Broadcast", callback_data="nav_broadcast")],
-        [InlineKeyboardButton("💸 Send Payment", callback_data="nav_sendpayment")],
-        [InlineKeyboardButton("🛠️ Manage Works", callback_data="nav_manage_tasks")], # Manage Tasks Button
-        [status_btn]
+        [InlineKeyboardButton("📈 All Statistics", callback_data="nav_stats"), InlineKeyboardButton("📣 Broadcast", callback_data="nav_broadcast")]
     ])
 
 
@@ -66,7 +69,11 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
         await update.message.reply_text(f"⛔ *Unauthorized!*\n\nID: `{update.effective_user.id}`", parse_mode="Markdown")
         return
-    await update.message.reply_text(_build_dashboard_text(db.get_stats()), parse_mode="Markdown", reply_markup=_dashboard_keyboard())
+    await update.message.reply_text(
+        _build_dashboard_text(db.get_stats()), 
+        parse_mode="Markdown", 
+        reply_markup=ADMIN_MENU # Loads primary Reply keyboard ✅
+    )
 
 
 async def cb_nav(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -90,8 +97,8 @@ async def cb_nav(update: Update, context: ContextTypes.DEFAULT_TYPE):
         stats = db.get_stats()
         await q.edit_message_text(_build_dashboard_text(stats), parse_mode="Markdown", reply_markup=_dashboard_keyboard())
 
-    # Submissions window toggle
-    elif q.data == "nav_toggle_subs":
+    # Submissions settings page toggle (Returns back to settings page)
+    elif q.data == "nav_toggle_subs_settings":
         current_status = db.is_submissions_open()
         new_status = not current_status
         db.set_submissions_open(new_status)
@@ -99,8 +106,14 @@ async def cb_nav(update: Update, context: ContextTypes.DEFAULT_TYPE):
         status_word = "OPENED" if new_status else "CLOSED"
         await q.answer(f"📂 Submissions are now {status_word}!", show_alert=True)
         
-        stats = db.get_stats()
-        await q.edit_message_text(_build_dashboard_text(stats), parse_mode="Markdown", reply_markup=_dashboard_keyboard())
+        status_btn = InlineKeyboardButton("🔒 Close Submissions" if new_status else "🔓 Open Submissions", callback_data="nav_toggle_subs_settings")
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🛠️ Manage Works", callback_data="nav_manage_tasks")],
+            [InlineKeyboardButton("👥 Members", callback_data="nav_members")],
+            [status_btn],
+            [InlineKeyboardButton("◀️ Back to Dashboard", callback_data="nav_back_dashboard")]
+        ])
+        await q.edit_message_text("〔 ⚙️ *Settings & Configuration* 〕\n" + DIVIDER + "\n\nAdjust your bot's operation parameters:", parse_mode="Markdown", reply_markup=kb)
 
 
 # Manage Tasks Menu Helper (OperationalError Removed)
@@ -130,7 +143,7 @@ async def _show_manage_tasks_menu(chat_id, context):
     await context.bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb_buttons))
 
 
-# ── Delete Task Callback ──
+# Delete Task Callback
 async def cb_delete_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     if not is_admin(q.from_user.id): await q.answer("⛔"); return
@@ -245,6 +258,53 @@ async def _send_payments(chat_id, context):
     text += f"{DIVIDER}\n💎 *Grand Total: {total:,.0f} ৳*"
     kb = InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Back to Dashboard", callback_data="nav_back_dashboard")]])
     await context.bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=kb)
+
+
+# NEW: Paid Who (Paginated list of paid users with inline details button) ✅
+async def cb_paid_who(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    
+    offset = 0
+    if q.data.startswith("nav_paidwho_"):
+        offset = int(q.data.replace("nav_paidwho_", ""))
+        
+    limit = 5
+    db_conn = db._conn()
+    pays = db_conn.execute("""
+        SELECT p.*, u.username, u.full_name 
+        FROM payments p JOIN users u ON p.user_id = u.user_id
+        ORDER BY p.sent_at DESC LIMIT ? OFFSET ?
+    """, (limit, offset)).fetchall()
+    
+    # Check if there are more items to paginate
+    has_more = db_conn.execute("SELECT COUNT(*) FROM payments").fetchone()[0] > (offset + limit)
+    db_conn.close()
+    
+    if not pays and offset == 0:
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Back to Dashboard", callback_data="nav_back_dashboard")]])
+        await q.edit_message_text("❌ No payment records found.", reply_markup=kb)
+        return
+        
+    text = f"👥 *Paid Members List* (Page {offset//limit + 1})\n{DIVIDER}\n\n"
+    kb_buttons = []
+    
+    for p in pays:
+        text += f"💵 *{p['pay_id']}* | {p['full_name']} | *{p['amount']:,.0f} ৳*\n📅 {fmt_dt(p['sent_at'])}\n\n"
+        kb_buttons.append([InlineKeyboardButton(f"👤 Detail: {p['full_name']}", callback_data=f"member_{p['user_id']}")])
+        
+    navigation_row = []
+    if offset > 0:
+        navigation_row.append(InlineKeyboardButton("◀️ Prev", callback_data=f"nav_paidwho_{offset - limit}"))
+    if has_more:
+        navigation_row.append(InlineKeyboardButton("Next ▶️", callback_data=f"nav_paidwho_{offset + limit}"))
+        
+    if navigation_row:
+        kb_buttons.append(navigation_row)
+        
+    kb_buttons.append([InlineKeyboardButton("◀️ Back to Dashboard", callback_data="nav_back_dashboard")])
+    await q.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb_buttons))
+
 
 # ── Payment Flow ──────────────────────────────────────────────────────────────
 
@@ -440,7 +500,7 @@ async def _finalize_payment(update, context: ContextTypes.DEFAULT_TYPE):
 
 # ── Broadcast ─────────────────────────────────────────────────────────────────
 
-# FIXED: Broadcast entry point from CallbackQuery
+# Broadcast entry point from CallbackQuery
 async def cb_nav_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     if not is_admin(q.from_user.id):
@@ -599,6 +659,43 @@ async def cmd_members_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_payments_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_admin(update.effective_user.id): await _send_payments(update.message.chat_id, context)
 
+
+# NEW: Dispatcher handler for Admin reply keyboard buttons ✅
+async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = (update.message.text or "").strip()
+    uid = update.effective_user.id
+    if not is_admin(uid): return
+
+    if text == "📊 Dashboard":
+        await update.message.reply_text(
+            _build_dashboard_text(db.get_stats()),
+            parse_mode="Markdown",
+            reply_markup=_dashboard_keyboard()
+        )
+    elif text == "📈 Analytics":
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📋 Submit History", callback_data="nav_history"), InlineKeyboardButton("⏳ Pending", callback_data="nav_pending")],
+            [InlineKeyboardButton("📊 Detailed Stats", callback_data="nav_stats")]
+        ])
+        await update.message.reply_text("〔 📈 *Analytics & Reports* 〕\n" + DIVIDER + "\n\nSelect an option to view submission analytics:", parse_mode="Markdown", reply_markup=kb)
+    elif text == "💳 Payments":
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("💸 Send Payment", callback_data="nav_sendpayment")],
+            [InlineKeyboardButton("📋 Pay History", callback_data="nav_payments")],
+            [InlineKeyboardButton("👥 Paid Members List", callback_data="nav_paidwho_0")]
+        ])
+        await update.message.reply_text("〔 💳 *Payment Management* 〕\n" + DIVIDER + "\n\nManage user payouts and transaction history:", parse_mode="Markdown", reply_markup=kb)
+    elif text == "⚙️ Settings":
+        is_open = db.is_submissions_open()
+        status_btn = InlineKeyboardButton("🔒 Close Submissions" if is_open else "🔓 Open Submissions", callback_data="nav_toggle_subs_settings")
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🛠️ Manage Works", callback_data="nav_manage_tasks")],
+            [InlineKeyboardButton("👥 Members", callback_data="nav_members")],
+            [status_btn]
+        ])
+        await update.message.reply_text("〔 ⚙️ *Settings & Configuration* 〕\n" + DIVIDER + "\n\nAdjust your bot's operation parameters:", parse_mode="Markdown", reply_markup=kb)
+
+
 # ── App Factory ───────────────────────────────────────────────────────────────
 def create_admin_app():
     app = Application.builder().token(ADMIN_BOT_TOKEN).build()
@@ -613,17 +710,17 @@ def create_admin_app():
             SELECT_USER: [CallbackQueryHandler(cb_select_user, pattern=r"^(payto_|pay_cancel)")],
             ENTER_AMOUNT: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, enter_amount),
-                CallbackQueryHandler(cb_cancel_pay_callback, pattern=r"^pay_cancel$") # Cancel button
+                CallbackQueryHandler(cb_cancel_pay_callback, pattern=r"^pay_cancel$") 
             ],
             ENTER_NOTE: [
                 CallbackQueryHandler(cb_note_skip, pattern=r"^note_skip$"),
-                CallbackQueryHandler(cb_cancel_pay_callback, pattern=r"^pay_cancel$"), # Cancel button
+                CallbackQueryHandler(cb_cancel_pay_callback, pattern=r"^pay_cancel$"), 
                 MessageHandler(filters.TEXT & ~filters.COMMAND, enter_note)
             ],
             ATTACH_FILE: [
                 CommandHandler("skip", cmd_skip_file),
-                CallbackQueryHandler(cb_skip_file_callback, pattern=r"^file_skip$"),  # Skip button
-                CallbackQueryHandler(cb_cancel_pay_callback, pattern=r"^pay_cancel$"), # Cancel button
+                CallbackQueryHandler(cb_skip_file_callback, pattern=r"^file_skip$"),  
+                CallbackQueryHandler(cb_cancel_pay_callback, pattern=r"^pay_cancel$"), 
                 MessageHandler(filters.Document.ALL | filters.PHOTO, attach_file)
             ],
         },
@@ -634,12 +731,12 @@ def create_admin_app():
     bc_conv = ConversationHandler(
         entry_points=[
             CommandHandler("broadcast", cmd_broadcast),
-            CallbackQueryHandler(cb_nav_broadcast, pattern=r"^nav_broadcast$"), # FIXED: Registered dashboard button in ConversationHandler ✅
+            CallbackQueryHandler(cb_nav_broadcast, pattern=r"^nav_broadcast$"), # Inline dashboard broadcast button registered
         ],
         states={
             BROADCAST_TEXT: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, do_broadcast),
-                CallbackQueryHandler(cb_cancel_broadcast, pattern=r"^bc_cancel$") # Broadcast Cancel button
+                CallbackQueryHandler(cb_cancel_broadcast, pattern=r"^bc_cancel$") 
             ]
         },
         fallbacks=[CommandHandler("cancel", cancel_broadcast)],
@@ -652,7 +749,7 @@ def create_admin_app():
         states={
             ENTER_TASK_NAME: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, enter_task_name),
-                CallbackQueryHandler(cb_cancel_task_callback, pattern=r"^task_cancel$") # Task Cancel button
+                CallbackQueryHandler(cb_cancel_task_callback, pattern=r"^task_cancel$") 
             ],
         },
         fallbacks=[CommandHandler("cancel", cmd_cancel_task)],
@@ -672,9 +769,13 @@ def create_admin_app():
     app.add_handler(CommandHandler("members", cmd_members_cmd))
     app.add_handler(CommandHandler("payments", cmd_payments_cmd))
     
-    # Dashboard nav
+    # Callback query handlers
     app.add_handler(CallbackQueryHandler(cb_nav, pattern=r"^nav_"))
     app.add_handler(CallbackQueryHandler(cb_submission, pattern=r"^(approve|decline)_"))
     app.add_handler(CallbackQueryHandler(cb_member_detail, pattern=r"^member_\d+$"))
     app.add_handler(CallbackQueryHandler(cb_delete_task, pattern=r"^deltask_\d+$")) 
+    app.add_handler(CallbackQueryHandler(cb_paid_who, pattern=r"^nav_paidwho_")) # Paid members pagination handler ✅
+    
+    # Text buttons dispatcher registered at the end
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_admin_text))
     return app
