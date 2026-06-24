@@ -273,6 +273,16 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     except Exception as e:
         logger.error(f"Admin notify failed: {e}")
+        await update.message.reply_text(
+            f"⚠️ *Admin Notification Error:*
+
+"
+            f"`{e}`
+
+"
+            f"_Admin bot এ /start দিয়েছেন? Railway Variables ঠিক আছে?_",
+            parse_mode="Markdown",
+        )
 
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
