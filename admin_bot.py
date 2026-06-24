@@ -80,7 +80,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         _build_dashboard_text(db.get_stats()), 
         parse_mode="Markdown", 
-        reply_markup=ADMIN_MENU # Loads primary Reply keyboard ✅
+        reply_markup=ADMIN_MENU # Loads primary Reply keyboard
     )
 
 
@@ -90,7 +90,11 @@ async def cb_nav(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.answer("⛔ Unauthorized", show_alert=True); return
     await q.answer()
     if q.data == "nav_pending": await _send_pending(q.message.chat_id, context)
-    elif q.data == "nav_history": await _send_history(q.message.chat_id, context)
+    
+    # ── History is now handled by the paginated 7-days function ──
+    elif q.data == "nav_history": 
+        await _send_history_paginated(q.message.chat_id, context, offset=0, edit=True, q=q)
+        
     elif q.data == "nav_members": await _send_members(q.message.chat_id, context)
     elif q.data == "nav_payments": await _send_payments(q.message.chat_id, context)
     elif q.data == "nav_stats": await _send_stats(q.message.chat_id, context)
@@ -188,33 +192,103 @@ async def _send_stats(chat_id, context):
 async def cmd_pending(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_admin(update.effective_user.id): await _send_pending(update.message.chat_id, context)
 
-# FIXED: sqlite3.Row object get method bypass ✅
+# sqlite3.Row object get method bypass
 async def _send_pending(chat_id, context):
     subs = db.get_pending_submissions()
     if not subs:
         await context.bot.send_message(chat_id, "✅ *No Pending Submissions Found!*", parse_mode="Markdown"); return
     await context.bot.send_message(chat_id, f"⏳ *{len(subs)} Pending Submissions*", parse_mode="Markdown")
     for sub in subs[:6]:
-        sub_dict = dict(sub) # Row to Dict Conversion ✅
+        sub_dict = dict(sub) # Row to Dict Conversion
         kb = InlineKeyboardMarkup([[InlineKeyboardButton("✅  Approve", callback_data=f"approve_{sub_dict['sub_id']}"), InlineKeyboardButton("❌  Decline", callback_data=f"decline_{sub_dict['sub_id']}")]])
         cap = f"📨 <b>{sub_dict['sub_id']}</b>\n━━━━━━━━━━━━━━━━━━\n📂 <b>Work Type:</b> <code>{sub_dict.get('task_name', 'General')}</code>\n👤 <b>{sub_dict['full_name']}</b> (@{sub_dict['username'] or '—'})\n📄 <code>{sub_dict['file_name']}</code>\n💬 {sub_dict['caption'] or 'No caption'}\n📅 {fmt_dt(sub_dict['submitted_at'])}"
         try: await context.bot.send_document(chat_id=chat_id, document=sub_dict["file_id"], caption=cap, parse_mode="HTML", reply_markup=kb)
         except Exception as e: logger.error(f"Doc send error: {e}")
 
-async def cmd_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if is_admin(update.effective_user.id): await _send_history(update.message.chat_id, context)
 
-# FIXED: sqlite3.Row object get method bypass ✅
-async def _send_history(chat_id, context):
-    subs = db.get_all_submissions(limit=20)
-    if not subs:
-        await context.bot.send_message(chat_id, "📭 *No history found.*", parse_mode="Markdown"); return
-    text = f"📋 *Submission History*\n{DIVIDER}\n\n"
+# NEW: 7-Days Submission History with chat_id, datetime and pagination ✅
+async def _send_history_paginated(chat_id, context, offset=0, edit=False, q=None):
+    from datetime import datetime, timedelta # Local safe imports
+    limit = 5
+    seven_days_ago = (datetime.now() - timedelta(days=7)).isoformat()
+    
+    db_conn = db._conn()
+    
+    # Get total count of submissions from the last 7 days
+    total_count = db_conn.execute("""
+        SELECT COUNT(*) 
+        FROM submissions s
+        JOIN users u ON s.user_id = u.user_id
+        WHERE s.submitted_at >= ?
+    """, (seven_days_ago,)).fetchone()[0]
+    
+    # Get 7-days submissions with limit and offset
+    subs = db_conn.execute("""
+        SELECT s.*, u.username, u.full_name
+        FROM submissions s
+        JOIN users u ON s.user_id = u.user_id
+        WHERE s.submitted_at >= ?
+        ORDER BY s.submitted_at DESC
+        LIMIT ? OFFSET ?
+    """, (seven_days_ago, limit, offset)).fetchall()
+    
+    db_conn.close()
+    
+    if not subs and offset == 0:
+        msg_text = "📭 *No submissions found in the last 7 days.*"
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Back to Dashboard", callback_data="nav_back_dashboard")]])
+        if edit and q:
+            await q.edit_message_text(msg_text, parse_mode="Markdown", reply_markup=kb)
+        else:
+            await context.bot.send_message(chat_id, msg_text, parse_mode="Markdown", reply_markup=kb)
+        return
+
+    text = f"📋 *Submission History (Last 7 Days)*\n_Page {offset//limit + 1}_\n{DIVIDER}\n\n"
+    
     for sub in subs:
-        sub_dict = dict(sub) # Row to Dict Conversion ✅
+        sub_dict = dict(sub)
         em = STATUS_EMOJI.get(sub_dict["status"], "❓")
-        text += f"{em} *{sub_dict['sub_id']}* — _{sub_dict['status'].upper()}_\n   📂 Work: {sub_dict.get('task_name', 'General')}\n   👤 {sub_dict['full_name']}\n   📄 `{sub_dict['file_name']}`\n\n"
-    await context.bot.send_message(chat_id, text, parse_mode="Markdown")
+        formatted_time = fmt_dt(sub_dict["submitted_at"])
+        
+        text += (
+            f"{em} *{sub_dict['sub_id']}* — _{sub_dict['status'].upper()}_\n"
+            f"   📂 **Work:** {sub_dict.get('task_name', 'General')}\n"
+            f"   👤 **User:** {sub_dict['full_name']} (@{sub_dict['username'] or '—'})\n"
+            f"   🪪 **Chat ID:** `{sub_dict['user_id']}`\n"
+            f"   📄 **File:** `{sub_dict['file_name']}`\n"
+            f"   📅 **Date/Time:** {formatted_time}\n\n"
+        )
+        
+    kb_buttons = []
+    navigation_row = []
+    if offset > 0:
+        navigation_row.append(InlineKeyboardButton("◀️ Prev", callback_data=f"nav_subhist_{offset - limit}"))
+    if total_count > (offset + limit):
+        navigation_row.append(InlineKeyboardButton("Next ▶️", callback_data=f"nav_subhist_{offset + limit}"))
+        
+    if navigation_row:
+        kb_buttons.append(navigation_row)
+        
+    kb_buttons.append([InlineKeyboardButton("◀️ Back to Dashboard", callback_data="nav_back_dashboard")])
+    reply_markup = InlineKeyboardMarkup(kb_buttons)
+    
+    if edit and q:
+        await q.edit_message_text(text, parse_mode="Markdown", reply_markup=reply_markup)
+    else:
+        await context.bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=reply_markup)
+
+
+# Pagination callback handler for submission history ✅
+async def cb_subhist_pagination(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    offset = int(q.data.replace("nav_subhist_", ""))
+    await _send_history_paginated(q.message.chat_id, context, offset=offset, edit=True, q=q)
+
+
+async def cmd_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if is_admin(update.effective_user.id): await _send_history_paginated(update.message.chat_id, context, offset=0)
+
 
 async def cmd_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_admin(update.effective_user.id): await _send_members(update.message.chat_id, context)
@@ -272,7 +346,7 @@ async def _send_payments(chat_id, context):
     await context.bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=kb)
 
 
-# Paid Who (Paginated list of paid users with inline details button) ✅
+# Paid Who (Paginated list of paid users with inline details button)
 async def cb_paid_who(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
@@ -621,7 +695,7 @@ async def cb_submission(update: Update, context: ContextTypes.DEFAULT_TYPE):
     sub = db.get_submission(sub_id)
     if not sub: await q.answer("❌ Submission not found!", show_alert=True); return
     
-    sub_dict = dict(sub) # Row to Dict Conversion ✅
+    sub_dict = dict(sub) # Row to Dict Conversion
     if sub_dict["status"] != "pending": await q.answer(f"⚠️ Already {sub_dict['status'].upper()}!", show_alert=True); return
     now = fmt_dt(datetime.now().isoformat())
     if action == "approve":
@@ -652,7 +726,6 @@ async def cb_submission(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_testnotify(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     await update.message.reply_text("🔍 Testing... wait.")
-    is_match = str(uid) == str(ADMIN_TELEGRAM_ID)
     info = f"📋 <b>Check:</b>\nID: <code>{uid}</code>\nADMIN_TELEGRAM_ID: <code>{ADMIN_TELEGRAM_ID}</code>\nMatch: {is_match}"
     await update.message.reply_text(info, parse_mode="HTML")
     try:
@@ -668,14 +741,14 @@ async def cmd_testnotify(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ Token error:\n<code>{e}</code>", parse_mode="HTML")
 
 async def cmd_history_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if is_admin(update.effective_user.id): await _send_history(update.message.chat_id, context)
+    if is_admin(update.effective_user.id): await _send_history_paginated(update.message.chat_id, context, offset=0)
 async def cmd_members_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_admin(update.effective_user.id): await _send_members(update.message.chat_id, context)
 async def cmd_payments_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_admin(update.effective_user.id): await _send_payments(update.message.chat_id, context)
 
 
-# Dispatcher handler for Admin reply keyboard buttons (All Settings toggling safe) ✅
+# Dispatcher handler for Admin reply keyboard buttons (All Settings toggling safe)
 async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (update.message.text or "").strip()
     uid = update.effective_user.id
@@ -790,6 +863,7 @@ def create_admin_app():
     app.add_handler(CallbackQueryHandler(cb_member_detail, pattern=r"^member_\d+$"))
     app.add_handler(CallbackQueryHandler(cb_delete_task, pattern=r"^deltask_\d+$")) 
     app.add_handler(CallbackQueryHandler(cb_paid_who, pattern=r"^nav_paidwho_")) # Paid members pagination handler
+    app.add_handler(CallbackQueryHandler(cb_subhist_pagination, pattern=r"^nav_subhist_")) # Submission history pagination handler ✅
     
     # Text buttons dispatcher registered at the end
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_admin_text))
