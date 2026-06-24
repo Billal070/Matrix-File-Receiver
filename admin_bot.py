@@ -311,23 +311,30 @@ async def cb_submission(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if action == "approve":
         db.update_submission_status(sub_id, "approved")
         user_msg = f"〔 🎉 *ফাইল অনুমোদিত!* 〕\n{DIVIDER}\n\n🆔 ID: `{sub_id}`\n📄 `{sub['file_name']}`\n✅ স্ট্যাটাস: *Approved*\n\nধন্যবাদ 🙏"
-        result_line = f"\n{DIVIDER}\n✅ *APPROVED* — {now}"
+        result_line = f"\n━━━━━━━━━━━━━━━━━━\n✅ <b>APPROVED</b> — {now}"
         reply_markup = InlineKeyboardMarkup([[InlineKeyboardButton("Approved ✅", callback_data="nav_done")]])
         await q.answer("✅ Approved!")
     else:
         db.update_submission_status(sub_id, "declined")
         user_msg = f"〔 ❌ *ফাইল বাতিল হয়েছে।* 〕\n{DIVIDER}\n\n🆔 ID: `{sub_id}`\n📄 `{sub['file_name']}`\n❌ স্ট্যাটাস: *Declined*"
-        result_line = f"\n{DIVIDER}\n❌ *DECLINED* — {now}"
+        result_line = f"\n━━━━━━━━━━━━━━━━━━\n❌ <b>DECLINED</b> — {now}"
         reply_markup = InlineKeyboardMarkup([[InlineKeyboardButton("Declined ❌", callback_data="nav_done")]])
         await q.answer("❌ Declined!")
     try:
         async with Bot(token=USER_BOT_TOKEN) as user_bot:
             await user_bot.send_message(chat_id=sub["user_id"], text=user_msg, parse_mode="Markdown")
     except Exception as e: logger.error(f"Notify failed: {e}")
+    
+    # FIXED: parsing issues with html format resolved with robust entities fallback 
     try:
-        new_cap = (q.message.caption or "") + result_line
-        await q.edit_message_caption(caption=new_cap, parse_mode="Markdown", reply_markup=reply_markup)
-    except Exception as e: logger.warning(f"Edit failed: {e}")
+        new_cap = (q.message.caption_html or "") + result_line
+        await q.edit_message_caption(caption=new_cap, parse_mode="HTML", reply_markup=reply_markup)
+    except Exception as e:
+        logger.warning(f"Caption edit failed, trying markup only: {e}")
+        try:
+            await q.edit_message_reply_markup(reply_markup=reply_markup)
+        except Exception as ex:
+            logger.error(f"Fallback markup edit failed: {ex}")
 
 async def cmd_history_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_admin(update.effective_user.id): await _send_history(update.message.chat_id, context)
