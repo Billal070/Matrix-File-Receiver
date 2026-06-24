@@ -42,10 +42,18 @@ def pct(val, total):
     return round(val / total * 100) if total else 0
 
 
-# Dashboard inline buttons
+# Admin Menu Keyboard with "Manage Works" option
 def _dashboard_keyboard():
+    is_open = db.is_submissions_open()
+    status_btn = InlineKeyboardButton("🔒 Close Submissions" if is_open else "🔓 Open Submissions", callback_data="nav_toggle_subs")
+    
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("📈 All Statistics", callback_data="nav_stats"), InlineKeyboardButton("📣 Broadcast", callback_data="nav_broadcast")]
+        [InlineKeyboardButton("⏳ Pending", callback_data="nav_pending"), InlineKeyboardButton("📋 History", callback_data="nav_history")],
+        [InlineKeyboardButton("👥 Members", callback_data="nav_members"), InlineKeyboardButton("💰 Payments", callback_data="nav_payments")],
+        [InlineKeyboardButton("📊 Stats", callback_data="nav_stats"), InlineKeyboardButton("📣 Broadcast", callback_data="nav_broadcast")],
+        [InlineKeyboardButton("💸 Send Payment", callback_data="nav_sendpayment")],
+        [InlineKeyboardButton("🛠️ Manage Works", callback_data="nav_manage_tasks")], # Manage Tasks Button
+        [status_btn]
     ])
 
 
@@ -180,28 +188,32 @@ async def _send_stats(chat_id, context):
 async def cmd_pending(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_admin(update.effective_user.id): await _send_pending(update.message.chat_id, context)
 
+# FIXED: sqlite3.Row object get method bypass ✅
 async def _send_pending(chat_id, context):
     subs = db.get_pending_submissions()
     if not subs:
         await context.bot.send_message(chat_id, "✅ *No Pending Submissions Found!*", parse_mode="Markdown"); return
     await context.bot.send_message(chat_id, f"⏳ *{len(subs)} Pending Submissions*", parse_mode="Markdown")
     for sub in subs[:6]:
-        kb = InlineKeyboardMarkup([[InlineKeyboardButton("✅  Approve", callback_data=f"approve_{sub['sub_id']}"), InlineKeyboardButton("❌  Decline", callback_data=f"decline_{sub['sub_id']}")]])
-        cap = f"📨 <b>{sub['sub_id']}</b>\n━━━━━━━━━━━━━━━━━━\n📂 <b>Work Type:</b> <code>{sub.get('task_name', 'General')}</code>\n👤 <b>{sub['full_name']}</b> (@{sub['username'] or '—'})\n📄 <code>{sub['file_name']}</code>\n💬 {sub['caption'] or 'No caption'}\n📅 {fmt_dt(sub['submitted_at'])}"
-        try: await context.bot.send_document(chat_id=chat_id, document=sub["file_id"], caption=cap, parse_mode="HTML", reply_markup=kb)
+        sub_dict = dict(sub) # Row to Dict Conversion ✅
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton("✅  Approve", callback_data=f"approve_{sub_dict['sub_id']}"), InlineKeyboardButton("❌  Decline", callback_data=f"decline_{sub_dict['sub_id']}")]])
+        cap = f"📨 <b>{sub_dict['sub_id']}</b>\n━━━━━━━━━━━━━━━━━━\n📂 <b>Work Type:</b> <code>{sub_dict.get('task_name', 'General')}</code>\n👤 <b>{sub_dict['full_name']}</b> (@{sub_dict['username'] or '—'})\n📄 <code>{sub_dict['file_name']}</code>\n💬 {sub_dict['caption'] or 'No caption'}\n📅 {fmt_dt(sub_dict['submitted_at'])}"
+        try: await context.bot.send_document(chat_id=chat_id, document=sub_dict["file_id"], caption=cap, parse_mode="HTML", reply_markup=kb)
         except Exception as e: logger.error(f"Doc send error: {e}")
 
 async def cmd_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_admin(update.effective_user.id): await _send_history(update.message.chat_id, context)
 
+# FIXED: sqlite3.Row object get method bypass ✅
 async def _send_history(chat_id, context):
     subs = db.get_all_submissions(limit=20)
     if not subs:
         await context.bot.send_message(chat_id, "📭 *No history found.*", parse_mode="Markdown"); return
     text = f"📋 *Submission History*\n{DIVIDER}\n\n"
     for sub in subs:
-        em = STATUS_EMOJI.get(sub["status"], "❓")
-        text += f"{em} *{sub['sub_id']}* — _{sub['status'].upper()}_\n   📂 Work: {sub.get('task_name', 'General')}\n   👤 {sub['full_name']}\n   📄 `{sub['file_name']}`\n\n"
+        sub_dict = dict(sub) # Row to Dict Conversion ✅
+        em = STATUS_EMOJI.get(sub_dict["status"], "❓")
+        text += f"{em} *{sub_dict['sub_id']}* — _{sub_dict['status'].upper()}_\n   📂 Work: {sub_dict.get('task_name', 'General')}\n   👤 {sub_dict['full_name']}\n   📄 `{sub_dict['file_name']}`\n\n"
     await context.bot.send_message(chat_id, text, parse_mode="Markdown")
 
 async def cmd_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -260,7 +272,7 @@ async def _send_payments(chat_id, context):
     await context.bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=kb)
 
 
-# NEW: Paid Who (Paginated list of paid users with inline details button) ✅
+# Paid Who (Paginated list of paid users with inline details button) ✅
 async def cb_paid_who(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
@@ -600,7 +612,7 @@ async def cb_cancel_task_callback(update: Update, context: ContextTypes.DEFAULT_
     return ConversationHandler.END
 
 
-# ── Approve / Decline (Updated with Local datetime import) ────────────────────
+# ── Approve / Decline (Updated with Local datetime import & Dict Conversion) ──
 async def cb_submission(update: Update, context: ContextTypes.DEFAULT_TYPE):
     from datetime import datetime  # Local Import
     q = update.callback_query
@@ -608,23 +620,25 @@ async def cb_submission(update: Update, context: ContextTypes.DEFAULT_TYPE):
     action, sub_id = q.data.split("_", 1)
     sub = db.get_submission(sub_id)
     if not sub: await q.answer("❌ Submission not found!", show_alert=True); return
-    if sub["status"] != "pending": await q.answer(f"⚠️ Already {sub['status'].upper()}!", show_alert=True); return
+    
+    sub_dict = dict(sub) # Row to Dict Conversion ✅
+    if sub_dict["status"] != "pending": await q.answer(f"⚠️ Already {sub_dict['status'].upper()}!", show_alert=True); return
     now = fmt_dt(datetime.now().isoformat())
     if action == "approve":
         db.update_submission_status(sub_id, "approved")
-        user_msg = f"〔 🎉 *File Approved!* 〕\n{DIVIDER}\n\n🆔 ID: `{sub_id}`\n📄 `{sub['file_name']}`\n✅ *Approved*\n\nThank you 🙏"
+        user_msg = f"〔 🎉 *File Approved!* 〕\n{DIVIDER}\n\n🆔 ID: `{sub_id}`\n📄 `{sub_dict['file_name']}`\n✅ *Approved*\n\nThank you 🙏"
         result_line = f"\n━━━━━━━━━━━━━━━━━━\n✅ <b>APPROVED</b> — {now}"
         reply_markup = InlineKeyboardMarkup([[InlineKeyboardButton("Approved ✅", callback_data="nav_done")]])
         await q.answer("✅ Approved!")
     else:
         db.update_submission_status(sub_id, "declined")
-        user_msg = f"〔 ❌ *File Declined!* 〕\n{DIVIDER}\n\n🆔 ID: `{sub_id}`\n📄 `{sub['file_name']}`\n❌ *Declined*"
+        user_msg = f"〔 ❌ *File Declined!* 〕\n{DIVIDER}\n\n🆔 ID: `{sub_id}`\n📄 `{sub_dict['file_name']}`\n❌ *Declined*"
         result_line = f"\n━━━━━━━━━━━━━━━━━━\n❌ <b>DECLINED</b> — {now}"
         reply_markup = InlineKeyboardMarkup([[InlineKeyboardButton("Declined ❌", callback_data="nav_done")]])
         await q.answer("❌ Declined!")
     try:
         async with Bot(token=USER_BOT_TOKEN) as user_bot:
-            await user_bot.send_message(chat_id=sub["user_id"], text=user_msg, parse_mode="Markdown")
+            await user_bot.send_message(chat_id=sub_dict["user_id"], text=user_msg, parse_mode="Markdown")
     except Exception as e: logger.error(f"Notify failed: {e}")
     try:
         new_cap = (q.message.caption_html or "") + result_line
@@ -638,7 +652,8 @@ async def cb_submission(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_testnotify(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     await update.message.reply_text("🔍 Testing... wait.")
-    info = f"📋 <b>Check:</b>\nYour ID: <code>{uid}</code>\nADMIN_TELEGRAM_ID: <code>{ADMIN_TELEGRAM_ID}</code>\nMatch: {'✅' if str(uid) == str(ADMIN_TELEGRAM_ID) else '❌ MISMATCH!'}"
+    is_match = str(uid) == str(ADMIN_TELEGRAM_ID)
+    info = f"📋 <b>Check:</b>\nID: <code>{uid}</code>\nADMIN_TELEGRAM_ID: <code>{ADMIN_TELEGRAM_ID}</code>\nMatch: {is_match}"
     await update.message.reply_text(info, parse_mode="HTML")
     try:
         async with Bot(token=USER_BOT_TOKEN) as test_bot:
@@ -660,7 +675,7 @@ async def cmd_payments_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_admin(update.effective_user.id): await _send_payments(update.message.chat_id, context)
 
 
-# NEW: Dispatcher handler for Admin reply keyboard buttons ✅
+# Dispatcher handler for Admin reply keyboard buttons (All Settings toggling safe) ✅
 async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (update.message.text or "").strip()
     uid = update.effective_user.id
@@ -774,7 +789,7 @@ def create_admin_app():
     app.add_handler(CallbackQueryHandler(cb_submission, pattern=r"^(approve|decline)_"))
     app.add_handler(CallbackQueryHandler(cb_member_detail, pattern=r"^member_\d+$"))
     app.add_handler(CallbackQueryHandler(cb_delete_task, pattern=r"^deltask_\d+$")) 
-    app.add_handler(CallbackQueryHandler(cb_paid_who, pattern=r"^nav_paidwho_")) # Paid members pagination handler ✅
+    app.add_handler(CallbackQueryHandler(cb_paid_who, pattern=r"^nav_paidwho_")) # Paid members pagination handler
     
     # Text buttons dispatcher registered at the end
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_admin_text))
