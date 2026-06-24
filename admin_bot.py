@@ -1,4 +1,4 @@
-import logging, os, io
+import logging, os, io, html
 from datetime import datetime
 from telegram import Update, Bot, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ConversationHandler, filters, ContextTypes
@@ -91,7 +91,7 @@ async def cb_nav(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await q.answer()
     if q.data == "nav_pending": await _send_pending(q.message.chat_id, context)
     
-    # ── History is now handled by the paginated 7-days function ──
+    # ── History is now handled by the paginated 7-days HTML function ──
     elif q.data == "nav_history": 
         await _send_history_paginated(q.message.chat_id, context, offset=0, edit=True, q=q)
         
@@ -192,29 +192,44 @@ async def _send_stats(chat_id, context):
 async def cmd_pending(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_admin(update.effective_user.id): await _send_pending(update.message.chat_id, context)
 
-# sqlite3.Row object get method bypass
+# FIXED: HTML Escaping added to prevent special characters crash (e.g. underscores) ✅
 async def _send_pending(chat_id, context):
     subs = db.get_pending_submissions()
     if not subs:
         await context.bot.send_message(chat_id, "✅ *No Pending Submissions Found!*", parse_mode="Markdown"); return
     await context.bot.send_message(chat_id, f"⏳ *{len(subs)} Pending Submissions*", parse_mode="Markdown")
     for sub in subs[:6]:
-        sub_dict = dict(sub) # Row to Dict Conversion
+        sub_dict = dict(sub) # Row to Dict Conversion 
         kb = InlineKeyboardMarkup([[InlineKeyboardButton("✅  Approve", callback_data=f"approve_{sub_dict['sub_id']}"), InlineKeyboardButton("❌  Decline", callback_data=f"decline_{sub_dict['sub_id']}")]])
-        cap = f"📨 <b>{sub_dict['sub_id']}</b>\n━━━━━━━━━━━━━━━━━━\n📂 <b>Work Type:</b> <code>{sub_dict.get('task_name', 'General')}</code>\n👤 <b>{sub_dict['full_name']}</b> (@{sub_dict['username'] or '—'})\n📄 <code>{sub_dict['file_name']}</code>\n💬 {sub_dict['caption'] or 'No caption'}\n📅 {fmt_dt(sub_dict['submitted_at'])}"
+        
+        # HTML characters escaping to ensure robustness
+        safe_sub_id = html.escape(str(sub_dict['sub_id']))
+        safe_task = html.escape(str(sub_dict.get('task_name', 'General')))
+        safe_name = html.escape(str(sub_dict['full_name']))
+        safe_user = html.escape(str(sub_dict['username'] or '—'))
+        safe_fname = html.escape(str(sub_dict['file_name']))
+        safe_caption = html.escape(str(sub_dict['caption'] or 'No caption'))
+        
+        cap = (
+            f"📨 <b>{safe_sub_id}</b>\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"📂 <b>Work Type:</b> <code>{safe_task}</code>\n"
+            f"👤 <b>{safe_name}</b> (@{safe_user})\n"
+            f"📄 <code>{safe_fname}</code>\n"
+            f"💬 {safe_caption}\n"
+            f"📅 {fmt_dt(sub_dict['submitted_at'])}"
+        )
         try: await context.bot.send_document(chat_id=chat_id, document=sub_dict["file_id"], caption=cap, parse_mode="HTML", reply_markup=kb)
         except Exception as e: logger.error(f"Doc send error: {e}")
 
 
-# NEW: 7-Days Submission History with chat_id, datetime and pagination ✅
+# FIXED: Paginated 7-Days Submission History with robust HTML escaping ✅
 async def _send_history_paginated(chat_id, context, offset=0, edit=False, q=None):
     from datetime import datetime, timedelta # Local safe imports
     limit = 5
     seven_days_ago = (datetime.now() - timedelta(days=7)).isoformat()
     
     db_conn = db._conn()
-    
-    # Get total count of submissions from the last 7 days
     total_count = db_conn.execute("""
         SELECT COUNT(*) 
         FROM submissions s
@@ -222,7 +237,6 @@ async def _send_history_paginated(chat_id, context, offset=0, edit=False, q=None
         WHERE s.submitted_at >= ?
     """, (seven_days_ago,)).fetchone()[0]
     
-    # Get 7-days submissions with limit and offset
     subs = db_conn.execute("""
         SELECT s.*, u.username, u.full_name
         FROM submissions s
@@ -231,7 +245,6 @@ async def _send_history_paginated(chat_id, context, offset=0, edit=False, q=None
         ORDER BY s.submitted_at DESC
         LIMIT ? OFFSET ?
     """, (seven_days_ago, limit, offset)).fetchall()
-    
     db_conn.close()
     
     if not subs and offset == 0:
@@ -243,20 +256,28 @@ async def _send_history_paginated(chat_id, context, offset=0, edit=False, q=None
             await context.bot.send_message(chat_id, msg_text, parse_mode="Markdown", reply_markup=kb)
         return
 
-    text = f"📋 *Submission History (Last 7 Days)*\n_Page {offset//limit + 1}_\n{DIVIDER}\n\n"
+    text = f"📋 <b>Submission History (Last 7 Days)</b>\n<i>Page {offset//limit + 1}</i>\n{DIVIDER}\n\n"
     
     for sub in subs:
         sub_dict = dict(sub)
         em = STATUS_EMOJI.get(sub_dict["status"], "❓")
         formatted_time = fmt_dt(sub_dict["submitted_at"])
         
+        # HTML Characters Escaping for each row
+        safe_sub_id = html.escape(str(sub_dict['sub_id']))
+        safe_status = html.escape(str(sub_dict['status'].upper()))
+        safe_task = html.escape(str(sub_dict.get('task_name', 'General')))
+        safe_name = html.escape(str(sub_dict['full_name']))
+        safe_user = html.escape(str(sub_dict['username'] or '—'))
+        safe_fname = html.escape(str(sub_dict['file_name']))
+        
         text += (
-            f"{em} *{sub_dict['sub_id']}* — _{sub_dict['status'].upper()}_\n"
-            f"   📂 **Work:** {sub_dict.get('task_name', 'General')}\n"
-            f"   👤 **User:** {sub_dict['full_name']} (@{sub_dict['username'] or '—'})\n"
-            f"   🪪 **Chat ID:** `{sub_dict['user_id']}`\n"
-            f"   📄 **File:** `{sub_dict['file_name']}`\n"
-            f"   📅 **Date/Time:** {formatted_time}\n\n"
+            f"{em} <b>{safe_sub_id}</b> — <i>{safe_status}</i>\n"
+            f"   📂 <b>Work:</b> <code>{safe_task}</code>\n"
+            f"   👤 <b>User:</b> {safe_name} (@{safe_user})\n"
+            f"   🪪 <b>Chat ID:</b> <code>{sub_dict['user_id']}</code>\n"
+            f"   📄 <b>File:</b> <code>{safe_fname}</code>\n"
+            f"   📅 <b>Date/Time:</b> {formatted_time}\n\n"
         )
         
     kb_buttons = []
@@ -273,12 +294,12 @@ async def _send_history_paginated(chat_id, context, offset=0, edit=False, q=None
     reply_markup = InlineKeyboardMarkup(kb_buttons)
     
     if edit and q:
-        await q.edit_message_text(text, parse_mode="Markdown", reply_markup=reply_markup)
+        await q.edit_message_text(text, parse_mode="HTML", reply_markup=reply_markup)
     else:
-        await context.bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=reply_markup)
+        await context.bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=reply_markup)
 
 
-# Pagination callback handler for submission history ✅
+# Pagination callback handler for submission history
 async def cb_subhist_pagination(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
@@ -293,21 +314,25 @@ async def cmd_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_admin(update.effective_user.id): await _send_members(update.message.chat_id, context)
 
-# Back to dashboard button added
+# Back to dashboard button added (FIXED: HTML escaping added)
 async def _send_members(chat_id, context):
     users = db.get_all_users()
     if not users:
         await context.bot.send_message(chat_id, "👥 *No members found.*", parse_mode="Markdown"); return
-    text = f"👥 *All Members ({len(users)} total)*\n{DIVIDER}\n\n"
+    text = f"👥 <b>All Members ({len(users)} total)</b>\n{DIVIDER}\n\n"
     keyboard = []
     for i, u in enumerate(users, 1):
         ms = db.get_member_stats(u["user_id"])
-        text += f"*{i}. {u['full_name']}* (@{u['username'] or '—'})\n   📁 {len(ms['subs'])} Subs | 💰 *{ms['total_paid']:,.0f} ৳*\n\n"
+        
+        safe_name = html.escape(str(u['full_name']))
+        safe_user = html.escape(str(u['username'] or '—'))
+        
+        text += f"<b>{i}. {safe_name}</b> (@{safe_user})\n   📁 {len(ms['subs'])} Subs | 💰 <b>{ms['total_paid']:,.0f} ৳</b>\n\n"
         keyboard.append([InlineKeyboardButton(f"👤 {u['full_name']}", callback_data=f"member_{u['user_id']}")])
     keyboard.append([InlineKeyboardButton("◀️ Back to Dashboard", callback_data="nav_back_dashboard")]) # Back Button
-    await context.bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+    await context.bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(keyboard))
 
-# Back buttons added
+# Back buttons added (FIXED: HTML escaping added)
 async def cb_member_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     if not is_admin(q.from_user.id): await q.answer("⛔", show_alert=True); return
@@ -316,18 +341,26 @@ async def cb_member_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = db.get_user(uid)
     if not user: await q.message.reply_text("❌ Member not found."); return
     ms = db.get_member_stats(uid)
-    text = (f"👤 *{user['full_name']}*\n{DIVIDER}\n\nID: `{uid}`\n📅 Joined: {fmt_dt(user['registered_at'])}\n\n"
-            f"📁 *Submissions:* Total {len(ms['subs'])} (✅ {ms['approved']} ⏳ {ms['pending']} ❌ {ms['declined']})\n💰 *Payments:* Total {ms['total_paid']:,.0f} ৳\n\n")
+    
+    safe_name = html.escape(str(user['full_name']))
+    safe_user = html.escape(str(user['username'] or '—'))
+    
+    text = (f"👤 <b>{safe_name}</b> (@{safe_user})\n{DIVIDER}\n\n"
+            f"🆔 ID: <code>{uid}</code>\n"
+            f"📅 Joined: {fmt_dt(user['registered_at'])}\n\n"
+            f"📁 <b>Submissions:</b> Total {len(ms['subs'])} (✅ {ms['approved']} ⏳ {ms['pending']} ❌ {ms['declined']})\n"
+            f"💰 <b>Payments:</b> Total {ms['total_paid']:,.0f} ৳\n\n")
     if ms["subs"]:
-        text += "📋 *Latest Submissions:*\n"
+        text += "📋 <b>Latest Submissions:</b>\n"
         for sub in ms["subs"][:5]:
-            em = STATUS_EMOJI.get(sub["status"], "❓")
-            text += f"   {em} `{sub['sub_id']}` — {fmt_dt(sub['submitted_at'])}\n"
+            sub_dict = dict(sub)
+            em = STATUS_EMOJI.get(sub_dict["status"], "❓")
+            text += f"   {em} <code>{sub_dict['sub_id']}</code> — {fmt_dt(sub_dict['submitted_at'])}\n"
     kb = InlineKeyboardMarkup([
         [InlineKeyboardButton("💸 Send Payment", callback_data=f"quickpay_{uid}")],
         [InlineKeyboardButton("◀️ Back to Members", callback_data="nav_members"), InlineKeyboardButton("◀️ Back to Dashboard", callback_data="nav_back_dashboard")]
     ])
-    await q.message.reply_text(text, parse_mode="Markdown", reply_markup=kb)
+    await q.message.reply_text(text, parse_mode="HTML", reply_markup=kb)
 
 async def cmd_payments(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_admin(update.effective_user.id): await _send_payments(update.message.chat_id, context)
@@ -346,7 +379,7 @@ async def _send_payments(chat_id, context):
     await context.bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=kb)
 
 
-# Paid Who (Paginated list of paid users with inline details button)
+# Paid Who (Paginated list of paid users with inline details button - FIXED: HTML escaping added) ✅
 async def cb_paid_who(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
@@ -372,11 +405,13 @@ async def cb_paid_who(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.edit_message_text("❌ No payment records found.", reply_markup=kb)
         return
         
-    text = f"👥 *Paid Members List* (Page {offset//limit + 1})\n{DIVIDER}\n\n"
+    text = f"👥 <b>Paid Members List</b> (Page {offset//limit + 1})\n{DIVIDER}\n\n"
     kb_buttons = []
     
     for p in pays:
-        text += f"💵 *{p['pay_id']}* | {p['full_name']} | *{p['amount']:,.0f} ৳*\n📅 {fmt_dt(p['sent_at'])}\n\n"
+        safe_name = html.escape(str(p['full_name']))
+        safe_pay_id = html.escape(str(p['pay_id']))
+        text += f"💵 <b>{safe_pay_id}</b> | {safe_name} | <b>{p['amount']:,.0f} ৳</b>\n📅 {fmt_dt(p['sent_at'])}\n\n"
         kb_buttons.append([InlineKeyboardButton(f"👤 Detail: {p['full_name']}", callback_data=f"member_{p['user_id']}")])
         
     navigation_row = []
@@ -389,7 +424,7 @@ async def cb_paid_who(update: Update, context: ContextTypes.DEFAULT_TYPE):
         kb_buttons.append(navigation_row)
         
     kb_buttons.append([InlineKeyboardButton("◀️ Back to Dashboard", callback_data="nav_back_dashboard")])
-    await q.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb_buttons))
+    await q.edit_message_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb_buttons))
 
 
 # ── Payment Flow ──────────────────────────────────────────────────────────────
