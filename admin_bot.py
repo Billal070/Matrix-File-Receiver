@@ -21,6 +21,17 @@ STATUS_EMOJI = {"pending": "⏳", "approved": "✅", "declined": "❌"}
 
 def is_admin(uid): return uid == ADMIN_TELEGRAM_ID
 
+
+async def cmd_myid(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Anyone can use this — shows their Telegram ID."""
+    uid = update.effective_user.id
+    await update.message.reply_text(
+        f"🪪 *আপনার Telegram ID:*\n"
+        f"`{uid}`\n\n"
+        f"_এই সংখ্যাটি Railway তে `ADMIN_TELEGRAM_ID` হিসেবে দিন।_",
+        parse_mode="Markdown",
+    )
+
 def fmt_dt(s):
     try:
         return datetime.fromisoformat(s).strftime("%d %b %Y  %I:%M %p")
@@ -81,7 +92,12 @@ def _build_dashboard_text(stats):
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
-        await update.message.reply_text("⛔ *Unauthorized.*", parse_mode="Markdown")
+        await update.message.reply_text(
+            f"⛔ *Unauthorized!*\n\n"
+            f"🪪 আপনার Telegram ID: `{update.effective_user.id}`\n\n"
+            f"_এই ID টি Railway তে `ADMIN_TELEGRAM_ID` variable এ দিন।_",
+            parse_mode="Markdown",
+        )
         return
     stats = db.get_stats()
     await update.message.reply_text(
@@ -724,6 +740,7 @@ def create_admin_app():
     app.add_handler(pay_conv)
     app.add_handler(bc_conv)
 
+    app.add_handler(CommandHandler("myid",     cmd_myid))   # No auth check — ID দেখার জন্য
     app.add_handler(CommandHandler("start",    cmd_start))
     app.add_handler(CommandHandler("stats",    cmd_stats))
     app.add_handler(CommandHandler("pending",  cmd_pending))
