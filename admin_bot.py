@@ -19,7 +19,12 @@ BROADCAST_TEXT = 10
 STATUS_EMOJI = {"pending": "⏳", "approved": "✅", "declined": "❌"}
 
 
-def is_admin(uid): return uid == ADMIN_TELEGRAM_ID
+# FIXED: Safe admin check to avoid string vs int bugs (common in Railway environment variables)
+def is_admin(uid):
+    try:
+        return int(uid) == int(ADMIN_TELEGRAM_ID)
+    except Exception:
+        return str(uid) == str(ADMIN_TELEGRAM_ID)
 
 
 async def cmd_myid(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -506,6 +511,7 @@ async def cmd_cancel_pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
+# FIXED: Standalone bot notifies wrapped in async with session context
 async def _finalize_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid    = context.user_data["pay_uid"]
     name   = context.user_data["pay_name"]
@@ -514,7 +520,6 @@ async def _finalize_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     fid    = context.user_data.get("pay_file")
 
     pay_id   = db.add_payment(uid, amount, note, fid)
-    user_bot = Bot(token=USER_BOT_TOKEN)
 
     user_text = (
         f"〔 💰 *পেমেন্ট নোটিফিকেশন!* 〕\n"
@@ -531,10 +536,11 @@ async def _finalize_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     try:
-        if fid:
-            await user_bot.send_document(chat_id=uid, document=fid, caption=user_text, parse_mode="Markdown")
-        else:
-            await user_bot.send_message(chat_id=uid, text=user_text, parse_mode="Markdown")
+        async with Bot(token=USER_BOT_TOKEN) as user_bot:
+            if fid:
+                await user_bot.send_document(chat_id=uid, document=fid, caption=user_text, parse_mode="Markdown")
+            else:
+                await user_bot.send_message(chat_id=uid, text=user_text, parse_mode="Markdown")
     except Exception as e:
         logger.error(f"Payment notify failed uid={uid}: {e}")
         await update.message.reply_text(
@@ -568,6 +574,7 @@ async def cmd_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return BROADCAST_TEXT
 
 
+# FIXED: Standalone bot session context wrapper
 async def do_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg   = update.message.text.strip()
     users = db.get_all_users()
@@ -580,7 +587,6 @@ async def do_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📣 _Broadcasting to {len(users)} members..._", parse_mode="Markdown"
     )
 
-    user_bot = Bot(token=USER_BOT_TOKEN)
     success, failed = 0, 0
 
     broadcast_text = (
@@ -590,16 +596,20 @@ async def do_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"_{fmt_dt(datetime.now().isoformat())}_"
     )
 
-    for u in users:
-        try:
-            await user_bot.send_message(
-                chat_id=u["user_id"],
-                text=broadcast_text,
-                parse_mode="Markdown",
-            )
-            success += 1
-        except Exception:
-            failed += 1
+    try:
+        async with Bot(token=USER_BOT_TOKEN) as user_bot:
+            for u in users:
+                try:
+                    await user_bot.send_message(
+                        chat_id=u["user_id"],
+                        text=broadcast_text,
+                        parse_mode="Markdown",
+                    )
+                    success += 1
+                except Exception:
+                    failed += 1
+    except Exception as e:
+        logger.error(f"Broadcast initialization failed: {e}")
 
     await proc.delete()
     await update.message.reply_text(
@@ -618,6 +628,7 @@ async def cancel_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ── Approve / Decline Callback ─────────────────────────────────────────────────
 
+# FIXED: Async Bot connection handled with context manager
 async def cb_submission(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     if not is_admin(q.from_user.id):
@@ -633,7 +644,6 @@ async def cb_submission(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.answer(f"⚠️ ইতোমধ্যে {sub['status'].upper()} করা হয়েছে!", show_alert=True)
         return
 
-    user_bot = Bot(token=USER_BOT_TOKEN)
     now      = fmt_dt(datetime.now().isoformat())
 
     if action == "approve":
@@ -663,7 +673,8 @@ async def cb_submission(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.answer("❌ Declined!")
 
     try:
-        await user_bot.send_message(chat_id=sub["user_id"], text=user_msg, parse_mode="Markdown")
+        async with Bot(token=USER_BOT_TOKEN) as user_bot:
+            await user_bot.send_message(chat_id=sub["user_id"], text=user_msg, parse_mode="Markdown")
     except Exception as e:
         logger.error(f"User notify failed: {e}")
 
@@ -691,17 +702,23 @@ async def cmd_payments_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ── App Factory ────────────────────────────────────────────────────────────────
 
+# FIXED: Diagnostic notification test safely wrapped in context session
 async def cmd_testnotify(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Test if user bot can send message to admin — diagnose notification issue."""
     uid = update.effective_user.id
     await update.message.reply_text("🔍 Testing... wait a moment.")
+
+    try:
+        is_match = int(uid) == int(ADMIN_TELEGRAM_ID)
+    except Exception:
+        is_match = str(uid) == str(ADMIN_TELEGRAM_ID)
 
     # Step 1: Show loaded config
     info = (
         f"📋 <b>Config Check:</b>\n"
         f"Your ID: <code>{uid}</code>\n"
         f"ADMIN_TELEGRAM_ID: <code>{ADMIN_TELEGRAM_ID}</code>\n"
-        f"Match: {'✅' if uid == ADMIN_TELEGRAM_ID else '❌ MISMATCH!'}\n\n"
+        f"Match: {'✅' if is_match else '❌ MISMATCH!'}\n\n"
         f"ADMIN_BOT_TOKEN ends: <code>...{ADMIN_BOT_TOKEN[-8:] if ADMIN_BOT_TOKEN else 'NOT SET'}</code>\n"
         f"USER_BOT_TOKEN ends: <code>...{USER_BOT_TOKEN[-8:] if USER_BOT_TOKEN else 'NOT SET'}</code>"
     )
@@ -709,31 +726,31 @@ async def cmd_testnotify(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Step 2: Try sending via user bot token
     try:
-        test_bot = Bot(token=USER_BOT_TOKEN)
-        bot_info = await test_bot.get_me()
-        await update.message.reply_text(
-            f"✅ USER_BOT_TOKEN valid!\n"
-            f"Bot name: <b>{bot_info.full_name}</b>\n"
-            f"Username: @{bot_info.username}",
-            parse_mode="HTML"
-        )
+        async with Bot(token=USER_BOT_TOKEN) as test_bot:
+            bot_info = await test_bot.get_me()
+            await update.message.reply_text(
+                f"✅ USER_BOT_TOKEN valid!\n"
+                f"Bot name: <b>{bot_info.full_name}</b>\n"
+                f"Username: @{bot_info.username}",
+                parse_mode="HTML"
+            )
+
+            # Step 3: Try sending a message to admin via user bot
+            try:
+                await test_bot.send_message(
+                    chat_id=ADMIN_TELEGRAM_ID,
+                    text="✅ Test notification from User Bot — working!"
+                )
+                await update.message.reply_text("✅ Notification sent via USER BOT successfully!\n\nCheck if you got a message from the USER bot.")
+            except Exception as e:
+                await update.message.reply_text(
+                    f"❌ Send failed:\n<code>{e}</code>\n\n"
+                    f"সমাধান: User bot এ /start দিয়েছেন?",
+                    parse_mode="HTML"
+                )
     except Exception as e:
         await update.message.reply_text(f"❌ USER_BOT_TOKEN error:\n<code>{e}</code>", parse_mode="HTML")
         return
-
-    # Step 3: Try sending a message to admin via user bot
-    try:
-        await test_bot.send_message(
-            chat_id=ADMIN_TELEGRAM_ID,
-            text="✅ Test notification from User Bot — working!"
-        )
-        await update.message.reply_text("✅ Notification sent via USER BOT successfully!\n\nCheck if you got a message from the USER bot.")
-    except Exception as e:
-        await update.message.reply_text(
-            f"❌ Send failed:\n<code>{e}</code>\n\n"
-            f"সমাধান: User bot এ /start দিয়েছেন?",
-            parse_mode="HTML"
-        )
 
 
 def create_admin_app():
