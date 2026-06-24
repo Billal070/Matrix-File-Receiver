@@ -51,8 +51,21 @@ def init_db():
             key   TEXT PRIMARY KEY,
             value TEXT
         );
+
+        CREATE TABLE IF NOT EXISTS tasks (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            task_name   TEXT UNIQUE,
+            created_at  TEXT
+        );
     """)
-    # ডিফল্টভাবে সাবমিশন অপশনটি ১ (অর্থাৎ Open) সেভ করা হচ্ছে
+
+    # Safe database migration: submissions টেবিলে task_name কলাম যুক্ত করা
+    try:
+        db.execute("ALTER TABLE submissions ADD COLUMN task_name TEXT DEFAULT 'General'")
+    except sqlite3.OperationalError:
+        pass  # কলাম অলরেডি মাইগ্রেট হয়ে থাকলে ইগনোর করবে
+
+    # ডিফল্ট সেটিংস ইনসার্ট
     db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('submissions_open', '1')")
     db.commit()
     db.close()
@@ -75,6 +88,41 @@ def set_submissions_open(status: bool):
     db.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('submissions_open', ?)", (val,))
     db.commit()
     db.close()
+
+
+# ── Tasks Management Helpers ──────────────────────────────────────────────────
+
+def add_task(task_name):
+    db = _conn()
+    try:
+        db.execute("INSERT INTO tasks (task_name, created_at) VALUES (?, ?)", (task_name, datetime.now().isoformat()))
+        db.commit()
+        success = True
+    except sqlite3.IntegrityError:
+        success = False
+    db.close()
+    return success
+
+
+def delete_task(task_id):
+    db = _conn()
+    db.execute("DELETE FROM tasks WHERE id=?", (task_id,))
+    db.commit()
+    db.close()
+
+
+def get_all_tasks():
+    db = _conn()
+    rows = db.execute("SELECT * FROM tasks ORDER BY id ASC").fetchall()
+    db.close()
+    return rows
+
+
+def get_task_by_id(task_id):
+    db = _conn()
+    row = db.execute("SELECT * FROM tasks WHERE id=?", (task_id,)).fetchone()
+    db.close()
+    return row
 
 
 # ── Users ─────────────────────────────────────────────────────────────────────
@@ -109,15 +157,15 @@ def get_all_users():
     return rows
 
 
-# ── Submissions ───────────────────────────────────────────────────────────────
+# ── Submissions (Updated with task_name parameter) ───────────────────────────
 
-def add_submission(user_id, file_id, file_name, caption=""):
+def add_submission(user_id, file_id, file_name, caption="", task_name="General"):
     db = _conn()
     n = db.execute("SELECT COUNT(*) FROM submissions").fetchone()[0]
     sid = f"SUB-{n+1:04d}"
     db.execute(
-        "INSERT INTO submissions (sub_id,user_id,file_id,file_name,caption,submitted_at) VALUES(?,?,?,?,?,?)",
-        (sid, user_id, file_id, file_name, caption, datetime.now().isoformat())
+        "INSERT INTO submissions (sub_id,user_id,file_id,file_name,caption,task_name,submitted_at) VALUES(?,?,?,?,?,?,?)",
+        (sid, user_id, file_id, file_name, caption, task_name, datetime.now().isoformat())
     )
     db.commit()
     db.close()
