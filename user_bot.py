@@ -44,7 +44,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     is_new = db.get_user(user.id) is None
     db.register_user(user.id, user.username, user.full_name)
 
-    badge = "🆕 *নতুন অ্যাকাউন্ট তৈরি হয়েছে!*" if is_new else "🔄 _স্বাগতম ফিরে!_"
+    badge = "🆕 *নতুন অ্যাকাউন্ট তৈরি হয়েছে!*" if is_new else "🔄 _স্বাগতম!_"
 
     await update.message.reply_text(
         f"〔 🔷 *{BOT_NAME}* 〕\n"
