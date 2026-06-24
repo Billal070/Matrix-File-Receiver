@@ -273,14 +273,11 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     except Exception as e:
         logger.error(f"Admin notify failed: {e}")
+        err = str(e)
         await update.message.reply_text(
-            f"⚠️ *Admin Notification Error:*
-
-"
-            f"`{e}`
-
-"
-            f"_Admin bot এ /start দিয়েছেন? Railway Variables ঠিক আছে?_",
+            "⚠️ *Admin Notification Error:*\n\n"
+            f"{err}\n\n"
+            "_Admin bot e /start diyechen? Railway Variables thik ache?_",
             parse_mode="Markdown",
         )
 
