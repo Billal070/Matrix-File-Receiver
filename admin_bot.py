@@ -517,7 +517,7 @@ async def cmd_cancel_pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
-# FIXED: Standalone cross-bot file_id restriction bypass during payments
+# Standalone cross-bot file_id restriction bypass during payments
 async def _finalize_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid    = context.user_data["pay_uid"]
     name   = context.user_data["pay_name"]
@@ -672,6 +672,11 @@ async def cb_submission(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"চমৎকার কাজ! ধন্যবাদ 🙏"
         )
         result_line = f"\n{DIVIDER}\n✅ *APPROVED* — {now}"
+        
+        # FIXED: বাটন ডিলিট না হয়ে কেবল মাত্র Approved বাটনটি শো করবে
+        reply_markup = InlineKeyboardMarkup([[
+            InlineKeyboardButton("Approved ✅", callback_data="nav_done")
+        ]])
         await q.answer("✅ Approved!")
 
     else:
@@ -685,150 +690,14 @@ async def cb_submission(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"_সমস্যার জন্য অ্যাডমিনের সাথে যোগাযোগ করুন।_"
         )
         result_line = f"\n{DIVIDER}\n❌ *DECLINED* — {now}"
+        
+        # FIXED: বাটন ডিলিট না হয়ে কেবল মাত্র Declined বাটনটি শো করবে
+        reply_markup = InlineKeyboardMarkup([[
+            InlineKeyboardButton("Declined ❌", callback_data="nav_done")
+        ]])
         await q.answer("❌ Declined!")
 
     try:
         async with Bot(token=USER_BOT_TOKEN) as user_bot:
             await user_bot.send_message(chat_id=sub["user_id"], text=user_msg, parse_mode="Markdown")
     except Exception as e:
-        logger.error(f"User notify failed: {e}")
-
-    try:
-        new_cap = (q.message.caption or "") + result_line
-        await q.edit_message_caption(caption=new_cap, parse_mode="Markdown", reply_markup=None)
-    except Exception as e:
-        logger.warning(f"Caption edit failed: {e}")
-
-
-# ── /pending and /history commands ────────────────────────────────────────────
-
-async def cmd_history_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id): return
-    await _send_history(update.message.chat_id, context)
-
-async def cmd_members_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id): return
-    await _send_members(update.message.chat_id, context)
-
-async def cmd_payments_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id): return
-    await _send_payments(update.message.chat_id, context)
-
-
-# ── App Factory ────────────────────────────────────────────────────────────────
-
-# Diagnostic notification test safely wrapped in context session
-async def cmd_testnotify(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Test if user bot can send message to admin — diagnose notification issue."""
-    uid = update.effective_user.id
-    await update.message.reply_text("🔍 Testing... wait a moment.")
-
-    try:
-        is_match = int(uid) == int(ADMIN_TELEGRAM_ID)
-    except Exception:
-        is_match = str(uid) == str(ADMIN_TELEGRAM_ID)
-
-    # Step 1: Show loaded config
-    info = (
-        f"📋 <b>Config Check:</b>\n"
-        f"Your ID: <code>{uid}</code>\n"
-        f"ADMIN_TELEGRAM_ID: <code>{ADMIN_TELEGRAM_ID}</code>\n"
-        f"Match: {'✅' if is_match else '❌ MISMATCH!'}\n\n"
-        f"ADMIN_BOT_TOKEN ends: <code>...{ADMIN_BOT_TOKEN[-8:] if ADMIN_BOT_TOKEN else 'NOT SET'}</code>\n"
-        f"USER_BOT_TOKEN ends: <code>...{USER_BOT_TOKEN[-8:] if USER_BOT_TOKEN else 'NOT SET'}</code>"
-    )
-    await update.message.reply_text(info, parse_mode="HTML")
-
-    # Step 2: Try sending via user bot token
-    try:
-        async with Bot(token=USER_BOT_TOKEN) as test_bot:
-            bot_info = await test_bot.get_me()
-            await update.message.reply_text(
-                f"✅ USER_BOT_TOKEN valid!\n"
-                f"Bot name: <b>{bot_info.full_name}</b>\n"
-                f"Username: @{bot_info.username}",
-                parse_mode="HTML"
-            )
-
-            # Step 3: Try sending a message to admin via user bot
-            try:
-                await test_bot.send_message(
-                    chat_id=ADMIN_TELEGRAM_ID,
-                    text="✅ Test notification from User Bot — working!"
-                )
-                await update.message.reply_text("✅ Notification sent via USER BOT successfully!\n\nCheck if you got a message from the USER bot.")
-            except Exception as e:
-                await update.message.reply_text(
-                    f"❌ Send failed:\n<code>{e}</code>\n\n"
-                    f"সমাধান: User bot এ /start দিয়েছেন?",
-                    parse_mode="HTML"
-                )
-    except Exception as e:
-        await update.message.reply_text(f"❌ USER_BOT_TOKEN error:\n<code>{e}</code>", parse_mode="HTML")
-        return
-
-
-def create_admin_app():
-    app = Application.builder().token(ADMIN_BOT_TOKEN).build()
-
-    # Payment conversation
-    pay_conv = ConversationHandler(
-        entry_points=[
-            CommandHandler("sendpayment", cmd_sendpayment),
-            CallbackQueryHandler(cb_quickpay, pattern=r"^quickpay_"),
-        ],
-        states={
-            SELECT_USER: [
-                CallbackQueryHandler(cb_select_user, pattern=r"^(payto_|pay_cancel)"),
-            ],
-            ENTER_AMOUNT: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, enter_amount),
-            ],
-            ENTER_NOTE: [
-                CallbackQueryHandler(cb_note_skip, pattern=r"^note_skip$"),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, enter_note),
-            ],
-            ATTACH_FILE: [
-                CommandHandler("skip",   cmd_skip_file),
-                MessageHandler(filters.Document.ALL | filters.PHOTO, attach_file),
-            ],
-        },
-        fallbacks=[
-            CommandHandler("cancel", cmd_cancel_pay),
-            CommandHandler("start",  cmd_start),
-        ],
-        per_message=False,
-        allow_reentry=True,
-    )
-
-    # Broadcast conversation
-    bc_conv = ConversationHandler(
-        entry_points=[CommandHandler("broadcast", cmd_broadcast)],
-        states={
-            BROADCAST_TEXT: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, do_broadcast),
-            ],
-        },
-        fallbacks=[CommandHandler("cancel", cancel_broadcast)],
-        per_message=False,
-        allow_reentry=True,
-    )
-
-    app.add_handler(pay_conv)
-    app.add_handler(bc_conv)
-
-    app.add_handler(CommandHandler("myid",        cmd_myid))        # No auth check
-    app.add_handler(CommandHandler("testnotify",  cmd_testnotify))  # Debug tool
-    app.add_handler(CommandHandler("start",    cmd_start))
-    app.add_handler(CommandHandler("stats",    cmd_stats))
-    app.add_handler(CommandHandler("pending",  cmd_pending))
-    app.add_handler(CommandHandler("history",  cmd_history_cmd))
-    app.add_handler(CommandHandler("members",  cmd_members_cmd))
-    app.add_handler(CommandHandler("payments", cmd_payments_cmd))
-
-    # Inline callbacks
-    app.add_handler(CallbackQueryHandler(cb_nav,           pattern=r"^nav_"))
-    app.add_handler(CallbackQueryHandler(cb_submission,    pattern=r"^(approve|decline)_"))
-    app.add_handler(CallbackQueryHandler(cb_member_detail, pattern=r"^member_\d+$"))
-
-    return app
