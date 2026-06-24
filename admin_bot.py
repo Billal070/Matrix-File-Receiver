@@ -19,7 +19,6 @@ async def cmd_myid(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"🪪 *Telegram ID:*\n`{update.effective_user.id}`\n\n_Railway variable: ADMIN_TELEGRAM_ID_", parse_mode="Markdown")
 
 def fmt_dt(s):
-    from datetime import datetime  # Local import to prevent NameError
     try: return datetime.fromisoformat(s).strftime("%d %b %Y  %I:%M %p")
     except: return s or "N/A"
 
@@ -80,11 +79,6 @@ async def cb_nav(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif q.data == "nav_members": await _send_members(q.message.chat_id, context)
     elif q.data == "nav_payments": await _send_payments(q.message.chat_id, context)
     elif q.data == "nav_stats": await _send_stats(q.message.chat_id, context)
-    elif q.data == "nav_broadcast":
-        # Broadcast cancel inline button added
-        kb = InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="bc_cancel")]])
-        await context.bot.send_message(q.message.chat_id, f"📣 *Broadcast*\n{DIVIDER}\n\nWrite your broadcast message.\n\n_Press Cancel to abort._", parse_mode="Markdown", reply_markup=kb)
-        context.user_data["awaiting_broadcast"] = True
     elif q.data == "nav_done":
         pass
     
@@ -136,7 +130,7 @@ async def _show_manage_tasks_menu(chat_id, context):
     await context.bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb_buttons))
 
 
-# Delete Task Callback
+# ── Delete Task Callback ──
 async def cb_delete_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     if not is_admin(q.from_user.id): await q.answer("⛔"); return
@@ -445,9 +439,27 @@ async def _finalize_payment(update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
 
 # ── Broadcast ─────────────────────────────────────────────────────────────────
+
+# FIXED: Broadcast entry point from CallbackQuery
+async def cb_nav_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    if not is_admin(q.from_user.id):
+        await q.answer("⛔", show_alert=True)
+        return ConversationHandler.END
+    await q.answer()
+    
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="bc_cancel")]])
+    await q.message.reply_text(
+        f"📣 *Broadcast*\n{DIVIDER}\n\n"
+        f"Please write the broadcast message you want to send to all members:\n\n"
+        f"_Press Cancel button below to abort._",
+        parse_mode="Markdown",
+        reply_markup=kb
+    )
+    return BROADCAST_TEXT
+
 async def cmd_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id): return ConversationHandler.END
-    # Cancel inline button added for Broadcast
     kb = InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="bc_cancel")]])
     await update.message.reply_text(f"📣 *Broadcast*\n{DIVIDER}\n\nWrite broadcast message:\n_Press Cancel to abort._", parse_mode="Markdown", reply_markup=kb)
     return BROADCAST_TEXT
@@ -601,17 +613,17 @@ def create_admin_app():
             SELECT_USER: [CallbackQueryHandler(cb_select_user, pattern=r"^(payto_|pay_cancel)")],
             ENTER_AMOUNT: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, enter_amount),
-                CallbackQueryHandler(cb_cancel_pay_callback, pattern=r"^pay_cancel$") # Cancel button ✅
+                CallbackQueryHandler(cb_cancel_pay_callback, pattern=r"^pay_cancel$") # Cancel button
             ],
             ENTER_NOTE: [
                 CallbackQueryHandler(cb_note_skip, pattern=r"^note_skip$"),
-                CallbackQueryHandler(cb_cancel_pay_callback, pattern=r"^pay_cancel$"), # Cancel button ✅
+                CallbackQueryHandler(cb_cancel_pay_callback, pattern=r"^pay_cancel$"), # Cancel button
                 MessageHandler(filters.TEXT & ~filters.COMMAND, enter_note)
             ],
             ATTACH_FILE: [
                 CommandHandler("skip", cmd_skip_file),
-                CallbackQueryHandler(cb_skip_file_callback, pattern=r"^file_skip$"),  # Skip button ✅
-                CallbackQueryHandler(cb_cancel_pay_callback, pattern=r"^pay_cancel$"), # Cancel button ✅
+                CallbackQueryHandler(cb_skip_file_callback, pattern=r"^file_skip$"),  # Skip button
+                CallbackQueryHandler(cb_cancel_pay_callback, pattern=r"^pay_cancel$"), # Cancel button
                 MessageHandler(filters.Document.ALL | filters.PHOTO, attach_file)
             ],
         },
@@ -620,11 +632,14 @@ def create_admin_app():
     )
 
     bc_conv = ConversationHandler(
-        entry_points=[CommandHandler("broadcast", cmd_broadcast)],
+        entry_points=[
+            CommandHandler("broadcast", cmd_broadcast),
+            CallbackQueryHandler(cb_nav_broadcast, pattern=r"^nav_broadcast$"), # FIXED: Registered dashboard button in ConversationHandler ✅
+        ],
         states={
             BROADCAST_TEXT: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, do_broadcast),
-                CallbackQueryHandler(cb_cancel_broadcast, pattern=r"^bc_cancel$") # Broadcast Cancel button ✅
+                CallbackQueryHandler(cb_cancel_broadcast, pattern=r"^bc_cancel$") # Broadcast Cancel button
             ]
         },
         fallbacks=[CommandHandler("cancel", cancel_broadcast)],
@@ -637,7 +652,7 @@ def create_admin_app():
         states={
             ENTER_TASK_NAME: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, enter_task_name),
-                CallbackQueryHandler(cb_cancel_task_callback, pattern=r"^task_cancel$") # Task Cancel button ✅
+                CallbackQueryHandler(cb_cancel_task_callback, pattern=r"^task_cancel$") # Task Cancel button
             ],
         },
         fallbacks=[CommandHandler("cancel", cmd_cancel_task)],
@@ -656,6 +671,8 @@ def create_admin_app():
     app.add_handler(CommandHandler("history", cmd_history_cmd))
     app.add_handler(CommandHandler("members", cmd_members_cmd))
     app.add_handler(CommandHandler("payments", cmd_payments_cmd))
+    
+    # Dashboard nav
     app.add_handler(CallbackQueryHandler(cb_nav, pattern=r"^nav_"))
     app.add_handler(CallbackQueryHandler(cb_submission, pattern=r"^(approve|decline)_"))
     app.add_handler(CallbackQueryHandler(cb_member_detail, pattern=r"^member_\d+$"))
