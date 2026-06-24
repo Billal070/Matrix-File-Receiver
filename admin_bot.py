@@ -348,32 +348,4 @@ async def _send_payments(chat_id, context):
         return
 
     total = sum(p["amount"] for p in pays)
-    text  = f"💰 *পেমেন্ট হিস্ট্রি* (সর্বশেষ {len(pays)}টি)\n{DIVIDER}\n\n"
-    for pay in pays:
-        text += (
-            f"💵 *{pay['pay_id']}*\n"
-            f"   👤 {pay['full_name']}  (@{pay['username'] or '—'})\n"
-            f"   💲 *{pay['amount']:,.0f} ৳*\n"
-            f"   📝 _{pay['note'] or '—'}_\n"
-            f"   📅 {fmt_dt(pay['sent_at'])}\n\n"
-        )
-    text += f"{DIVIDER}\n💎 *সর্বমোট: {total:,.0f} ৳*"
-    await context.bot.send_message(chat_id, text, parse_mode="Markdown")
-
-
-# ── /sendpayment ──────────────────────────────────────────────────────────────
-
-async def cmd_sendpayment(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id):
-        return ConversationHandler.END
-    await _sendpayment_init(update.message.chat_id, context)
-    return SELECT_USER
-
-
-async def _sendpayment_init(chat_id, context):
-    users = db.get_all_users()
-    if not users:
-        await context.bot.send_message(chat_id, "👥 _কোনো সদস্য নেই।_", parse_mode="Markdown")
-        return
-
-    context.user_data["pay_users"] = {str(u["user_id"]): dict(u)
+    text  = f"💰 *পেমেন্ট হিস্ট্রি* (সর্বশেষ {len(pays)}টি)\n{D
