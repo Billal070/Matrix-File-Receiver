@@ -253,33 +253,27 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
             InlineKeyboardButton("✅  Approve", callback_data=f"approve_{sub_id}"),
             InlineKeyboardButton("❌  Decline", callback_data=f"decline_{sub_id}"),
         ]])
+        # HTML mode — safe for filenames/usernames with special characters
         cap = (
-            f"🔔 *নতুন সাবমিশন!*\n"
-            f"{DIVIDER}\n\n"
-            f"🆔 `{sub_id}`\n"
-            f"👤 *{user.full_name}*\n"
+            f"🔔 <b>নতুন সাবমিশন!</b>\n"
+            f"━━━━━━━━━━━━━━━━━━\n\n"
+            f"🆔 <code>{sub_id}</code>\n"
+            f"👤 <b>{user.full_name}</b>\n"
             f"   🔗 @{user.username or '—'}\n"
-            f"   🪪 `{user.id}`\n"
-            f"📄 `{fname}`\n"
-            f"💬 _{caption or 'caption নেই'}_\n"
+            f"   🪪 <code>{user.id}</code>\n"
+            f"📄 <code>{fname}</code>\n"
+            f"💬 {caption or 'caption নেই'}\n"
             f"🕐 {fmt_dt(datetime.now().isoformat())}"
         )
         await admin_bot.send_document(
             chat_id=ADMIN_TELEGRAM_ID,
             document=doc.file_id,
             caption=cap,
-            parse_mode="Markdown",
+            parse_mode="HTML",
             reply_markup=keyboard,
         )
     except Exception as e:
         logger.error(f"Admin notify failed: {e}")
-        err = str(e)
-        await update.message.reply_text(
-            "⚠️ *Admin Notification Error:*\n\n"
-            f"{err}\n\n"
-            "_Admin bot e /start diyechen? Railway Variables thik ache?_",
-            parse_mode="Markdown",
-        )
 
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
