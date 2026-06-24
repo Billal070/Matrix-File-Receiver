@@ -246,32 +246,32 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=MENU,
     )
 
-    # ── Notify Admin ──────────────────────────────────────────────────────────
+    # ── Notify Admin (FIXED with async with context) ──────────────────────────
     try:
-        admin_bot = Bot(token=ADMIN_BOT_TOKEN)
-        keyboard  = InlineKeyboardMarkup([[
-            InlineKeyboardButton("✅  Approve", callback_data=f"approve_{sub_id}"),
-            InlineKeyboardButton("❌  Decline", callback_data=f"decline_{sub_id}"),
-        ]])
-        # HTML mode — safe for filenames/usernames with special characters
-        cap = (
-            f"🔔 <b>নতুন সাবমিশন!</b>\n"
-            f"━━━━━━━━━━━━━━━━━━\n\n"
-            f"🆔 <code>{sub_id}</code>\n"
-            f"👤 <b>{user.full_name}</b>\n"
-            f"   🔗 @{user.username or '—'}\n"
-            f"   🪪 <code>{user.id}</code>\n"
-            f"📄 <code>{fname}</code>\n"
-            f"💬 {caption or 'caption নেই'}\n"
-            f"🕐 {fmt_dt(datetime.now().isoformat())}"
-        )
-        await admin_bot.send_document(
-            chat_id=ADMIN_TELEGRAM_ID,
-            document=doc.file_id,
-            caption=cap,
-            parse_mode="HTML",
-            reply_markup=keyboard,
-        )
+        async with Bot(token=ADMIN_BOT_TOKEN) as admin_bot:
+            keyboard  = InlineKeyboardMarkup([[
+                InlineKeyboardButton("✅  Approve", callback_data=f"approve_{sub_id}"),
+                InlineKeyboardButton("❌  Decline", callback_data=f"decline_{sub_id}"),
+            ]])
+            # HTML mode — safe for filenames/usernames with special characters
+            cap = (
+                f"🔔 <b>নতুন সাবমিশন!</b>\n"
+                f"━━━━━━━━━━━━━━━━━━\n\n"
+                f"🆔 <code>{sub_id}</code>\n"
+                f"👤 <b>{user.full_name}</b>\n"
+                f"   🔗 @{user.username or '—'}\n"
+                f"   🪪 <code>{user.id}</code>\n"
+                f"📄 <code>{fname}</code>\n"
+                f"💬 {caption or 'caption নেই'}\n"
+                f"🕐 {fmt_dt(datetime.now().isoformat())}"
+            )
+            await admin_bot.send_document(
+                chat_id=ADMIN_TELEGRAM_ID,
+                document=doc.file_id,
+                caption=cap,
+                parse_mode="HTML",
+                reply_markup=keyboard,
+            )
     except Exception as e:
         logger.error(f"Admin notify failed: {e}")
 
