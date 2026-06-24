@@ -7,6 +7,7 @@ from config import ADMIN_BOT_TOKEN, USER_BOT_TOKEN, ADMIN_TELEGRAM_ID, BOT_NAME,
 
 logger = logging.getLogger(__name__)
 SELECT_USER, ENTER_AMOUNT, ENTER_NOTE, ATTACH_FILE = range(4)
+ENTER_TASK_NAME = range(5, 6) # State for adding new task
 BROADCAST_TEXT = 10
 STATUS_EMOJI = {"pending": "⏳", "approved": "✅", "declined": "❌"}
 
@@ -30,7 +31,7 @@ def pct(val, total):
     return round(val / total * 100) if total else 0
 
 
-# FIXED: Submissions toggle button added on the dashboard keyboard dynamically
+# UPDATED: Admin Menu Keyboard with "Manage Works" option
 def _dashboard_keyboard():
     is_open = db.is_submissions_open()
     status_btn = InlineKeyboardButton("🔒 Close Submissions" if is_open else "🔓 Open Submissions", callback_data="nav_toggle_subs")
@@ -40,11 +41,11 @@ def _dashboard_keyboard():
         [InlineKeyboardButton("👥 Members", callback_data="nav_members"), InlineKeyboardButton("💰 Payments", callback_data="nav_payments")],
         [InlineKeyboardButton("📊 Stats", callback_data="nav_stats"), InlineKeyboardButton("📣 Broadcast", callback_data="nav_broadcast")],
         [InlineKeyboardButton("💸 Send Payment", callback_data="nav_sendpayment")],
-        [status_btn] # New toggle button row
+        [InlineKeyboardButton("🛠️ Manage Works", callback_data="nav_manage_tasks")], # Manage Tasks Button ✅
+        [status_btn]
     ])
 
 
-# FIXED: Dashboard text updated to show current window state
 def _build_dashboard_text(stats):
     alert = f"\n🔔 *{stats['pending']} Pending!*" if stats["pending"] else ""
     t = stats["total_subs"]
@@ -84,7 +85,15 @@ async def cb_nav(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif q.data == "nav_done":
         pass
     
-    # FIXED: Submissions toggle handler (Saves & updates dashboard text dynamically)
+    # ── Manage Tasks View Handler ──
+    elif q.data == "nav_manage_tasks" or q.data == "nav_back_tasks":
+        await _show_manage_tasks_menu(q.message.chat_id, context)
+        
+    elif q.data == "nav_back_dashboard":
+        stats = db.get_stats()
+        await q.edit_message_text(_build_dashboard_text(stats), parse_mode="Markdown", reply_markup=_dashboard_keyboard())
+
+    # Submissions window toggle
     elif q.data == "nav_toggle_subs":
         current_status = db.is_submissions_open()
         new_status = not current_status
@@ -94,11 +103,55 @@ async def cb_nav(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.answer(f"📂 Submissions are now {status_word}!", show_alert=True)
         
         stats = db.get_stats()
-        await q.edit_message_text(
-            _build_dashboard_text(stats),
-            parse_mode="Markdown",
-            reply_markup=_dashboard_keyboard()
-        )
+        await q.edit_message_text(_build_dashboard_text(stats), parse_mode="Markdown", reply_markup=_dashboard_keyboard())
+
+
+# ── Manage Tasks Menu Helper ──
+async def _show_manage_tasks_menu(chat_id, context):
+    tasks = db.get_all_submissions # Wait, need to get tasks settings. Let's load active tasks from submissions or settings.
+    # Actually, we can load all unique tasks saved or simply from database.py's we retrieve settings.
+    # To show existing tasks, let's load all unique task names from submissions table
+    db_conn = db._conn()
+    unique_tasks_rows = db_conn.execute("SELECT DISTINCT caption FROM settings WHERE key LIKE 'task_%'").fetchall() # Wait, simpler: we save active task names in settings table under prefix 'task_'
+    unique_tasks_rows = db_conn.execute("SELECT id, task_name FROM tasks").fetchall()
+    db_conn.close()
+
+    text = f"🛠️ *Manage Work Types*\n{DIVIDER}\n\n"
+    if not unique_tasks_rows:
+        text += "⚠️ No custom work types set. Users can't submit files right now!\n\n_Click '+ Add New Work' button below to create one._"
+    else:
+        text += "📂 *Current Active Works:*\n"
+        for i, t in enumerate(unique_tasks_rows, 1):
+            text += f"   {i}. **{t['task_name']}**\n"
+        text += "\n_Click trash icon next to a work below to delete it._"
+
+    kb_buttons = []
+    for t in unique_tasks_rows:
+        kb_buttons.append([
+            InlineKeyboardButton(f"📄 {t['task_name']}", callback_data="nav_done"),
+            InlineKeyboardButton("❌ Delete", callback_data=f"deltask_{t['id']}")
+        ])
+    kb_buttons.append([InlineKeyboardButton("➕ Add New Work", callback_data="add_task_init")])
+    kb_buttons.append([InlineKeyboardButton("◀️ Back to Dashboard", callback_data="nav_back_dashboard")])
+
+    await context.bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb_buttons))
+
+
+# ── Delete Task Callback ──
+async def cb_delete_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    if not is_admin(q.from_user.id): await q.answer("⛔"); return
+    await q.answer()
+
+    task_id = int(q.data.replace("deltask_", ""))
+    task = db.get_task_by_id(task_id)
+    if task:
+        db.delete_task(task_id)
+        await q.message.reply_text(f"🗑️ Work type **'{task['task_name']}'** has been deleted!", parse_mode="Markdown")
+    
+    # Refresh menu
+    await _show_manage_tasks_menu(q.message.chat_id, context)
+
 
 async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_admin(update.effective_user.id): await _send_stats(update.message.chat_id, context)
@@ -126,7 +179,7 @@ async def _send_pending(chat_id, context):
     await context.bot.send_message(chat_id, f"⏳ *{len(subs)} Pending Submissions*", parse_mode="Markdown")
     for sub in subs[:6]:
         kb = InlineKeyboardMarkup([[InlineKeyboardButton("✅  Approve", callback_data=f"approve_{sub['sub_id']}"), InlineKeyboardButton("❌  Decline", callback_data=f"decline_{sub['sub_id']}")]])
-        cap = f"📨 <b>{sub['sub_id']}</b>\n━━━━━━━━━━━━━━━━━━\n👤 <b>{sub['full_name']}</b> (@{sub['username'] or '—'})\n📄 <code>{sub['file_name']}</code>\n💬 {sub['caption'] or 'No caption'}\n📅 {fmt_dt(sub['submitted_at'])}"
+        cap = f"📨 <b>{sub['sub_id']}</b>\n━━━━━━━━━━━━━━━━━━\n📂 <b>Work Type:</b> <code>{sub.get('task_name', 'General')}</code>\n👤 <b>{sub['full_name']}</b> (@{sub['username'] or '—'})\n📄 <code>{sub['file_name']}</code>\n💬 {sub['caption'] or 'No caption'}\n📅 {fmt_dt(sub['submitted_at'])}"
         try: await context.bot.send_document(chat_id=chat_id, document=sub["file_id"], caption=cap, parse_mode="HTML", reply_markup=kb)
         except Exception as e: logger.error(f"Doc send error: {e}")
 
@@ -140,7 +193,7 @@ async def _send_history(chat_id, context):
     text = f"📋 *Submission History*\n{DIVIDER}\n\n"
     for sub in subs:
         em = STATUS_EMOJI.get(sub["status"], "❓")
-        text += f"{em} *{sub['sub_id']}* — _{sub['status'].upper()}_\n   👤 {sub['full_name']}\n   📄 `{sub['file_name']}`\n\n"
+        text += f"{em} *{sub['sub_id']}* — _{sub['status'].upper()}_\n   📂 Work: {sub.get('task_name', 'General')}\n   👤 {sub['full_name']}\n   📄 `{sub['file_name']}`\n\n"
     await context.bot.send_message(chat_id, text, parse_mode="Markdown")
 
 async def cmd_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -366,6 +419,43 @@ async def do_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cancel_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("❌ _Cancelled._", parse_mode="Markdown"); return ConversationHandler.END
 
+
+# ── Manage Tasks (Conversation handlers) ──────────────────────────────────────
+async def cb_add_task_init(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    if not is_admin(q.from_user.id): await q.answer("⛔"); return ConversationHandler.END
+    await q.answer()
+    
+    await q.message.reply_text(
+        f"📝 *Add New Work Type*\n{DIVIDER}\n\n"
+        f"Please enter the name of the new task/work type:\n"
+        f"_(e.g., Lead Generation, YouTube Review, Data Entry)_",
+        parse_mode="Markdown"
+    )
+    return ENTER_TASK_NAME
+
+async def enter_task_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    task_name = update.message.text.strip()
+    if not task_name:
+        await update.message.reply_text("❌ Work name cannot be empty. Please enter again:")
+        return ENTER_TASK_NAME
+
+    success = db.add_task(task_name)
+    if success:
+        await update.message.reply_text(f"✅ Work type **'{task_name}'** has been added successfully!", parse_mode="Markdown")
+    else:
+        await update.message.reply_text("⚠️ This work type name already exists! Please try a different name:")
+        return ENTER_TASK_NAME
+    
+    await _show_manage_tasks_menu(update.message.chat_id, context)
+    return ConversationHandler.END
+
+async def cmd_cancel_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("❌ _Cancelled task adding._", parse_mode="Markdown")
+    await _show_manage_tasks_menu(update.message.chat_id, context)
+    return ConversationHandler.END
+
+
 # ── Approve / Decline ─────────────────────────────────────────────────────────
 async def cb_submission(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
@@ -431,8 +521,8 @@ def create_admin_app():
     pay_conv = ConversationHandler(
         entry_points=[
             CommandHandler("sendpayment", cmd_sendpayment),
-            CallbackQueryHandler(cb_nav_sendpayment, pattern=r"^nav_sendpayment$"),  # Dashboard button ✅
-            CallbackQueryHandler(cb_quickpay, pattern=r"^quickpay_"),               # Member detail button ✅
+            CallbackQueryHandler(cb_nav_sendpayment, pattern=r"^nav_sendpayment$"),  
+            CallbackQueryHandler(cb_quickpay, pattern=r"^quickpay_"),               
         ],
         states={
             SELECT_USER: [CallbackQueryHandler(cb_select_user, pattern=r"^(payto_|pay_cancel)")],
@@ -457,8 +547,20 @@ def create_admin_app():
         per_message=False, allow_reentry=True
     )
 
+    # NEW: Task management conversation handler
+    task_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(cb_add_task_init, pattern=r"^add_task_init$")],
+        states={
+            ENTER_TASK_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, enter_task_name)],
+        },
+        fallbacks=[CommandHandler("cancel", cmd_cancel_task)],
+        per_message=False, allow_reentry=True
+    )
+
     app.add_handler(pay_conv)
     app.add_handler(bc_conv)
+    app.add_handler(task_conv) # Task manager handler registered ✅
+    
     app.add_handler(CommandHandler("myid", cmd_myid))
     app.add_handler(CommandHandler("testnotify", cmd_testnotify))
     app.add_handler(CommandHandler("start", cmd_start))
@@ -470,4 +572,5 @@ def create_admin_app():
     app.add_handler(CallbackQueryHandler(cb_nav, pattern=r"^nav_"))
     app.add_handler(CallbackQueryHandler(cb_submission, pattern=r"^(approve|decline)_"))
     app.add_handler(CallbackQueryHandler(cb_member_detail, pattern=r"^member_\d+$"))
+    app.add_handler(CallbackQueryHandler(cb_delete_task, pattern=r"^deltask_\d+$")) # Delete task callback ✅
     return app
