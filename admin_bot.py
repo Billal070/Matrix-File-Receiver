@@ -31,7 +31,7 @@ def pct(val, total):
     return round(val / total * 100) if total else 0
 
 
-# UPDATED: Admin Menu Keyboard with "Manage Works" option
+# Admin Menu Keyboard with "Manage Works" option
 def _dashboard_keyboard():
     is_open = db.is_submissions_open()
     status_btn = InlineKeyboardButton("🔒 Close Submissions" if is_open else "🔓 Open Submissions", callback_data="nav_toggle_subs")
@@ -106,13 +106,9 @@ async def cb_nav(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.edit_message_text(_build_dashboard_text(stats), parse_mode="Markdown", reply_markup=_dashboard_keyboard())
 
 
-# ── Manage Tasks Menu Helper ──
+# ── Manage Tasks Menu Helper (FIXED: OperationalError Removed) ──
 async def _show_manage_tasks_menu(chat_id, context):
-    tasks = db.get_all_submissions # Wait, need to get tasks settings. Let's load active tasks from submissions or settings.
-    # Actually, we can load all unique tasks saved or simply from database.py's we retrieve settings.
-    # To show existing tasks, let's load all unique task names from submissions table
     db_conn = db._conn()
-    unique_tasks_rows = db_conn.execute("SELECT DISTINCT caption FROM settings WHERE key LIKE 'task_%'").fetchall() # Wait, simpler: we save active task names in settings table under prefix 'task_'
     unique_tasks_rows = db_conn.execute("SELECT id, task_name FROM tasks").fetchall()
     db_conn.close()
 
@@ -547,7 +543,7 @@ def create_admin_app():
         per_message=False, allow_reentry=True
     )
 
-    # NEW: Task management conversation handler
+    # Task management conversation handler
     task_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(cb_add_task_init, pattern=r"^add_task_init$")],
         states={
