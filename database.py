@@ -46,7 +46,33 @@ def init_db():
             sent_at  TEXT,
             FOREIGN KEY (user_id) REFERENCES users(user_id)
         );
+
+        CREATE TABLE IF NOT EXISTS settings (
+            key   TEXT PRIMARY KEY,
+            value TEXT
+        );
     """)
+    # ডিফল্টভাবে সাবমিশন অপশনটি ১ (অর্থাৎ Open) সেভ করা হচ্ছে
+    db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('submissions_open', '1')")
+    db.commit()
+    db.close()
+
+
+# ── Submissions Toggle Helpers ────────────────────────────────────────────────
+
+def is_submissions_open():
+    db = _conn()
+    row = db.execute("SELECT value FROM settings WHERE key='submissions_open'").fetchone()
+    db.close()
+    if row:
+        return row["value"] == "1"
+    return True
+
+
+def set_submissions_open(status: bool):
+    db = _conn()
+    val = "1" if status else "0"
+    db.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('submissions_open', ?)", (val,))
     db.commit()
     db.close()
 
