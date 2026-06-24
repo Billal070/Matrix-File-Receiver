@@ -444,27 +444,50 @@ async def handle_unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
+# ── Text Button Dispatcher ────────────────────────────────────────────────────
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Single handler for all text — dispatches by button label."""
+    text = (update.message.text or "").strip()
+
+    if text == "📁 ফাইল জমা দিন":
+        await btn_submit(update, context)
+    elif text == "📊 আমার সাবমিশন":
+        await _show_status(update)
+    elif text == "💰 আমার পেমেন্ট":
+        await _show_payments(update)
+    elif text == "👤 আমার অ্যাকাউন্ট":
+        await _show_account(update)
+    elif "সাহায্য" in text:
+        await _show_help(update)
+    else:
+        await update.message.reply_text(
+            "❓ _বুঝতে পারিনি।_\n\n_নিচের মেনু ব্যবহার করুন।_",
+            parse_mode="Markdown",
+            reply_markup=MENU,
+        )
+
+
 # ── App Factory ────────────────────────────────────────────────────────────────
 def create_user_app():
     app = Application.builder().token(USER_BOT_TOKEN).build()
 
+    from telegram.ext import CallbackQueryHandler
+
+    # Commands
     app.add_handler(CommandHandler("start",    cmd_start))
     app.add_handler(CommandHandler("status",   cmd_status))
     app.add_handler(CommandHandler("payments", cmd_payments))
     app.add_handler(CommandHandler("account",  cmd_account))
     app.add_handler(CommandHandler("help",     cmd_help))
 
-    app.add_handler(MessageHandler(filters.Regex(r"^📁 ফাইল জমা দিন$"),    btn_submit))
-    app.add_handler(MessageHandler(filters.Regex(r"^📊 আমার সাবমিশন$"),    btn_status))
-    app.add_handler(MessageHandler(filters.Regex(r"^💰 আমার পেমেন্ট$"),    btn_payments))
-    app.add_handler(MessageHandler(filters.Regex(r"^👤 আমার অ্যাকাউন্ট$"), btn_account))
-    app.add_handler(MessageHandler(filters.Regex(r"^ℹ️  সাহায্য$"),        btn_help))
-
+    # Files
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
     app.add_handler(MessageHandler(filters.PHOTO | filters.VIDEO, handle_photo))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_unknown))
 
-    from telegram.ext import CallbackQueryHandler
+    # Single text dispatcher — handles all buttons reliably
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+
+    # Inline buttons from account page
     app.add_handler(CallbackQueryHandler(cb_account, pattern=r"^acc_"))
 
     return app
