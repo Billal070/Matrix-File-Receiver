@@ -82,7 +82,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-# ── Submit File (Updated to check for available works first) ───────────────────
+# ── Submit File ────────────────────────────────────────────────────────────────
 async def btn_submit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not db.is_submissions_open():
         await update.message.reply_text(
@@ -106,10 +106,11 @@ async def btn_submit(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # কাজ সিলেক্ট করার জন্য ডায়নামিক ইনলাইন কিবোর্ড তৈরি করা
+    # Dynamic inline keyboard with cancel button
     kb_buttons = []
     for task in active_tasks:
         kb_buttons.append([InlineKeyboardButton(f"📂 {task['task_name']}", callback_data=f"seltask_{task['id']}")])
+    kb_buttons.append([InlineKeyboardButton("❌ Cancel", callback_data="cancel_submit")]) # Cancel Button ✅
 
     markup = InlineKeyboardMarkup(kb_buttons)
 
@@ -134,11 +135,12 @@ async def cb_select_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not task:
         await q.message.reply_text("❌ Selected work type not found."); return
 
-    # ইউজারের স্টেট সেভ করা
     user_states[user_id] = {
         "state": "waiting_for_file",
         "task_name": task["task_name"]
     }
+
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel Submission", callback_data="cancel_submit")]])
 
     await q.message.reply_text(
         f"📁 *Submit File for: {task['task_name']}*\n"
@@ -148,8 +150,18 @@ async def cb_select_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"  • Only *.xlsx / .xls* file formats are accepted\n"
         f"  • You can add a Caption with your file\n\n"
         f"_📎 Attach and send your file as a document_",
-        parse_mode="Markdown"
+        parse_mode="Markdown",
+        reply_markup=kb
     )
+
+
+# ── Cancel submission callback handler ──
+async def cb_cancel_submit(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    user_id = q.from_user.id
+    user_states[user_id] = None # Reset State ✅
+    await q.message.reply_text("❌ _Submission cancelled successfully._", parse_mode="Markdown", reply_markup=MENU)
 
 
 # ── My Submissions ─────────────────────────────────────────────────────────────
@@ -288,23 +300,41 @@ async def _show_account(update: Update):
         f"📅 *Joined:*  {fmt_dt(db_user['registered_at'])}\n"
         f"🏅 *Badge:*   {badge}\n\n"
 
+        f"{DIVIDER}\n\n"
+
         # ── Submissions
-        f"📁 *Submission Summary:*\n"
-        f"  • Total:        *{total_s}*\n"
-        f"  • ✅ Approved:     *{approved}*\n"
-        f"  • ⏳ Pending:      *{pending}*\n"
-        f"  • ❌ Declined:     *{declined}*\n\n"
-        f"  • Success Rate:    {pbar(approved, total_s)} *{success}%*\n\n"
+        f"📊 *Submission Summary:*\n"
+        f"  📦 Total:        *{total_s}*\n"
+        f"  ✅ Approved:     *{approved}*\n"
+        f"  ⏳ Pending:      *{pending}*\n"
+        f"  ❌ Declined:     *{declined}*\n\n"
+        f"  📈 Success Rate:\n"
+        f"  {pbar(approved, total_s)} *{success}%*\n\n"
     )
 
     if last_sub:
         em = STATUS_EMOJI.get(last_sub["status"], "❓")
         text += (
             f"  🕐 Latest Submission:\n"
-            f"  {em} `{last_sub['sub_id']}` — {fmt_dt(last_sub['submitted_at'])}\n"
+            f"  {em} `{last_sub['sub_id']}` — _{STATUS_BN.get(last_sub['status'], '')}_\n\n"
         )
 
-    text += f"{DIVIDER}\n"
+    text += f"{DIVIDER}\n\n"
+
+    # ── Payments
+    text += (
+        f"💰 *Payment Summary:*\n"
+        f"  💵 Total Transactions: *{len(pays)}* times\n"
+        f"  💎 Total Received:     *{total_p:,.0f} ৳*\n"
+    )
+
+    if last_pay:
+        text += (
+            f"  🕐 Latest Payment:\n"
+            f"  💲 *{last_pay['amount']:,.0f} ৳* — {fmt_dt(last_pay['sent_at'])}\n"
+        )
+
+    text += f"\n{DIVIDER}"
 
     kb = InlineKeyboardMarkup([
         [
@@ -401,7 +431,6 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not db.get_user(user_id):
         db.register_user(user_id, user.username, user.full_name)
 
-    # সাবমিশন ওপেন আছে কিনা চেক
     if not db.is_submissions_open():
         await update.message.reply_text(
             f"⚠️ *Submissions are Closed!*\n"
@@ -438,10 +467,9 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     caption = update.message.caption or ""
     task_name = state.get("task_name", "General")
     
-    # ডাটাবেসে সেভ (task_name প্যারামিটার সহ)
     sub_id  = db.add_submission(user_id, doc.file_id, fname, caption, task_name)
     await proc.delete()
-    user_states[user_id] = None # স্টেট রিসেট
+    user_states[user_id] = None # Reset State
 
     await update.message.reply_text(
         f"〔 ✅ *Submission Successful!* 〕\n"
@@ -558,8 +586,9 @@ def create_user_app():
     # Single text dispatcher — handles all buttons reliably
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
-    # Inline buttons
+    # Inline buttons callbacks
     app.add_handler(CallbackQueryHandler(cb_account, pattern=r"^acc_"))
-    app.add_handler(CallbackQueryHandler(cb_select_task, pattern=r"^seltask_")) # seltask callback ✅
+    app.add_handler(CallbackQueryHandler(cb_select_task, pattern=r"^seltask_")) 
+    app.add_handler(CallbackQueryHandler(cb_cancel_submit, pattern=r"^cancel_submit$")) # Cancel Callback ✅
 
     return app
