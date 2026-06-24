@@ -691,6 +691,51 @@ async def cmd_payments_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ── App Factory ────────────────────────────────────────────────────────────────
 
+async def cmd_testnotify(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Test if user bot can send message to admin — diagnose notification issue."""
+    uid = update.effective_user.id
+    await update.message.reply_text("🔍 Testing... wait a moment.")
+
+    # Step 1: Show loaded config
+    info = (
+        f"📋 <b>Config Check:</b>\n"
+        f"Your ID: <code>{uid}</code>\n"
+        f"ADMIN_TELEGRAM_ID: <code>{ADMIN_TELEGRAM_ID}</code>\n"
+        f"Match: {'✅' if uid == ADMIN_TELEGRAM_ID else '❌ MISMATCH!'}\n\n"
+        f"ADMIN_BOT_TOKEN ends: <code>...{ADMIN_BOT_TOKEN[-8:] if ADMIN_BOT_TOKEN else 'NOT SET'}</code>\n"
+        f"USER_BOT_TOKEN ends: <code>...{USER_BOT_TOKEN[-8:] if USER_BOT_TOKEN else 'NOT SET'}</code>"
+    )
+    await update.message.reply_text(info, parse_mode="HTML")
+
+    # Step 2: Try sending via user bot token
+    try:
+        test_bot = Bot(token=USER_BOT_TOKEN)
+        bot_info = await test_bot.get_me()
+        await update.message.reply_text(
+            f"✅ USER_BOT_TOKEN valid!\n"
+            f"Bot name: <b>{bot_info.full_name}</b>\n"
+            f"Username: @{bot_info.username}",
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        await update.message.reply_text(f"❌ USER_BOT_TOKEN error:\n<code>{e}</code>", parse_mode="HTML")
+        return
+
+    # Step 3: Try sending a message to admin via user bot
+    try:
+        await test_bot.send_message(
+            chat_id=ADMIN_TELEGRAM_ID,
+            text="✅ Test notification from User Bot — working!"
+        )
+        await update.message.reply_text("✅ Notification sent via USER BOT successfully!\n\nCheck if you got a message from the USER bot.")
+    except Exception as e:
+        await update.message.reply_text(
+            f"❌ Send failed:\n<code>{e}</code>\n\n"
+            f"সমাধান: User bot এ /start দিয়েছেন?",
+            parse_mode="HTML"
+        )
+
+
 def create_admin_app():
     app = Application.builder().token(ADMIN_BOT_TOKEN).build()
 
@@ -740,7 +785,8 @@ def create_admin_app():
     app.add_handler(pay_conv)
     app.add_handler(bc_conv)
 
-    app.add_handler(CommandHandler("myid",     cmd_myid))   # No auth check — ID দেখার জন্য
+    app.add_handler(CommandHandler("myid",        cmd_myid))        # No auth check
+    app.add_handler(CommandHandler("testnotify",  cmd_testnotify))  # Debug tool
     app.add_handler(CommandHandler("start",    cmd_start))
     app.add_handler(CommandHandler("stats",    cmd_stats))
     app.add_handler(CommandHandler("pending",  cmd_pending))
