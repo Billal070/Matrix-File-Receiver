@@ -1,4 +1,5 @@
 import logging, os, io
+from datetime import datetime
 from telegram import Update, Bot, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ConversationHandler, filters, ContextTypes
 import database as db
@@ -18,6 +19,7 @@ async def cmd_myid(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"🪪 *Telegram ID:*\n`{update.effective_user.id}`\n\n_Railway variable: ADMIN_TELEGRAM_ID_", parse_mode="Markdown")
 
 def fmt_dt(s):
+    from datetime import datetime  # Local import to prevent NameError
     try: return datetime.fromisoformat(s).strftime("%d %b %Y  %I:%M %p")
     except: return s or "N/A"
 
@@ -40,7 +42,7 @@ def _dashboard_keyboard():
         [InlineKeyboardButton("👥 Members", callback_data="nav_members"), InlineKeyboardButton("💰 Payments", callback_data="nav_payments")],
         [InlineKeyboardButton("📊 Stats", callback_data="nav_stats"), InlineKeyboardButton("📣 Broadcast", callback_data="nav_broadcast")],
         [InlineKeyboardButton("💸 Send Payment", callback_data="nav_sendpayment")],
-        [InlineKeyboardButton("🛠️ Manage Works", callback_data="nav_manage_tasks")], # Manage Tasks Button ✅
+        [InlineKeyboardButton("🛠️ Manage Works", callback_data="nav_manage_tasks")], # Manage Tasks Button
         [status_btn]
     ])
 
@@ -153,7 +155,7 @@ async def cb_delete_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_admin(update.effective_user.id): await _send_stats(update.message.chat_id, context)
 
-# UPDATED: Back to dashboard button added
+# Back to dashboard button added
 async def _send_stats(chat_id, context):
     s = db.get_stats()
     t = s["total_subs"]
@@ -198,7 +200,7 @@ async def _send_history(chat_id, context):
 async def cmd_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_admin(update.effective_user.id): await _send_members(update.message.chat_id, context)
 
-# UPDATED: Back to dashboard button added
+# Back to dashboard button added
 async def _send_members(chat_id, context):
     users = db.get_all_users()
     if not users:
@@ -209,10 +211,10 @@ async def _send_members(chat_id, context):
         ms = db.get_member_stats(u["user_id"])
         text += f"*{i}. {u['full_name']}* (@{u['username'] or '—'})\n   📁 {len(ms['subs'])} Subs | 💰 *{ms['total_paid']:,.0f} ৳*\n\n"
         keyboard.append([InlineKeyboardButton(f"👤 {u['full_name']}", callback_data=f"member_{u['user_id']}")])
-    keyboard.append([InlineKeyboardButton("◀️ Back to Dashboard", callback_data="nav_back_dashboard")]) # Back Button ✅
+    keyboard.append([InlineKeyboardButton("◀️ Back to Dashboard", callback_data="nav_back_dashboard")]) # Back Button
     await context.bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
 
-# UPDATED: Back buttons added
+# Back buttons added
 async def cb_member_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     if not is_admin(q.from_user.id): await q.answer("⛔", show_alert=True); return
@@ -237,7 +239,7 @@ async def cb_member_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_payments(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_admin(update.effective_user.id): await _send_payments(update.message.chat_id, context)
 
-# UPDATED: Back to dashboard button added
+# Back to dashboard button added
 async def _send_payments(chat_id, context):
     pays = db.get_all_payments(limit=20)
     if not pays:
@@ -302,7 +304,7 @@ async def cb_quickpay(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     return ENTER_AMOUNT
 
-# UPDATED: Select user cancel inline handler
+# Select user cancel inline handler
 async def cb_select_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query; await q.answer()
     if q.data == "pay_cancel":
@@ -321,7 +323,7 @@ async def cb_select_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     return ENTER_AMOUNT
 
-# UPDATED: Inline Cancel button added
+# Inline Cancel button added
 async def enter_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
     raw = update.message.text.strip().replace(",", "").replace("৳", "").replace(" ", "")
     try:
@@ -344,7 +346,7 @@ async def enter_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     return ENTER_NOTE
 
-# UPDATED: Skip and Cancel buttons in line
+# Skip and Cancel buttons in line
 async def cb_note_skip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query; await q.answer()
     context.user_data["pay_note"] = ""
@@ -359,7 +361,7 @@ async def cb_note_skip(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     return ATTACH_FILE
 
-# UPDATED: Skip and Cancel buttons in line
+# Skip and Cancel buttons in line
 async def enter_note(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["pay_note"] = update.message.text.strip()
     kb = InlineKeyboardMarkup([
@@ -391,7 +393,7 @@ async def cmd_skip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _finalize_payment(update, context)
     return ConversationHandler.END
 
-# Inline file skip handler ✅
+# Inline file skip handler
 async def cb_skip_file_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query; await q.answer()
     context.user_data["pay_file"] = None
@@ -403,15 +405,16 @@ async def cmd_cancel_pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("❌ _Payment cancelled._", parse_mode="Markdown")
     return ConversationHandler.END
 
-# Universal Inline cancel callback handler for payments ✅
+# Universal Inline cancel callback handler for payments
 async def cb_cancel_pay_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query; await q.answer()
     context.user_data.clear()
     await q.edit_message_text("❌ _Payment cancelled successfully._")
     return ConversationHandler.END
 
-# Updated context message sender helper
+# Updated context message sender helper (using Local datetime import)
 async def _finalize_payment(update, context: ContextTypes.DEFAULT_TYPE):
+    from datetime import datetime  # Local Import
     uid, name = context.user_data["pay_uid"], context.user_data["pay_name"]
     amount, note = context.user_data["pay_amount"], context.user_data.get("pay_note", "")
     fid = context.user_data.get("pay_file")
@@ -444,12 +447,14 @@ async def _finalize_payment(update, context: ContextTypes.DEFAULT_TYPE):
 # ── Broadcast ─────────────────────────────────────────────────────────────────
 async def cmd_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id): return ConversationHandler.END
-    # Cancel inline button added for Broadcast ✅
+    # Cancel inline button added for Broadcast
     kb = InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="bc_cancel")]])
     await update.message.reply_text(f"📣 *Broadcast*\n{DIVIDER}\n\nWrite broadcast message:\n_Press Cancel to abort._", parse_mode="Markdown", reply_markup=kb)
     return BROADCAST_TEXT
 
+# Updated broadcast helper with Local datetime import
 async def do_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    from datetime import datetime  # Local Import
     msg = update.message.text.strip()
     users = db.get_all_users()
     if not users: await update.message.reply_text("👥 No members found."); return ConversationHandler.END
@@ -471,7 +476,7 @@ async def do_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cancel_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("❌ _Cancelled._", parse_mode="Markdown"); return ConversationHandler.END
 
-# Inline broadcast cancel callback handler ✅
+# Inline broadcast cancel callback handler
 async def cb_cancel_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query; await q.answer()
     await q.edit_message_text("❌ _Broadcast cancelled successfully._")
@@ -483,7 +488,7 @@ async def cb_add_task_init(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(q.from_user.id): await q.answer("⛔"); return ConversationHandler.END
     await q.answer()
     
-    # Cancel button added ✅
+    # Cancel button added
     kb = InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="task_cancel")]])
     await q.message.reply_text(
         f"📝 *Add New Work Type*\n{DIVIDER}\n\n"
@@ -515,7 +520,7 @@ async def cmd_cancel_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _show_manage_tasks_menu(update.message.chat_id, context)
     return ConversationHandler.END
 
-# Inline task cancel handler ✅
+# Inline task cancel handler
 async def cb_cancel_task_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query; await q.answer()
     await q.edit_message_text("❌ _Task creation cancelled._")
@@ -523,8 +528,9 @@ async def cb_cancel_task_callback(update: Update, context: ContextTypes.DEFAULT_
     return ConversationHandler.END
 
 
-# ── Approve / Decline ─────────────────────────────────────────────────────────
+# ── Approve / Decline (Updated with Local datetime import) ────────────────────
 async def cb_submission(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    from datetime import datetime  # Local Import
     q = update.callback_query
     if not is_admin(q.from_user.id): await q.answer("⛔ Unauthorized!", show_alert=True); return
     action, sub_id = q.data.split("_", 1)
