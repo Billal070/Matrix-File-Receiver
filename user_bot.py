@@ -1,5 +1,6 @@
 import logging
 from datetime import datetime
+import io  # ইন-মেমোরি ফাইল হ্যান্ডলিংয়ের জন্য
 
 from telegram import (
     Update, Bot,
@@ -246,8 +247,16 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=MENU,
     )
 
-    # ── Notify Admin (FIXED with async with context) ──────────────────────────
+    # ── Notify Admin (FIXED: Byte Stream Download Bypass) ──────────────────────
     try:
+        # User Bot এর সেশন ব্যবহার করে ফাইলটি মেমোরিতে ডাউনলোড করা হচ্ছে
+        tg_file = await context.bot.get_file(doc.file_id)
+        file_bytes = await tg_file.download_as_bytearray()
+        
+        # বাইট ডেটাকে ফাইলে রূপান্তর
+        file_io = io.BytesIO(file_bytes)
+        file_io.name = fname
+
         async with Bot(token=ADMIN_BOT_TOKEN) as admin_bot:
             keyboard  = InlineKeyboardMarkup([[
                 InlineKeyboardButton("✅  Approve", callback_data=f"approve_{sub_id}"),
@@ -265,9 +274,10 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"💬 {caption or 'caption নেই'}\n"
                 f"🕐 {fmt_dt(datetime.now().isoformat())}"
             )
+            # Admin bot এর মাধ্যমে নতুন বাইটস্ট্রিম ফাইল হিসেবে অ্যাডমিনকে পাঠানো হচ্ছে
             await admin_bot.send_document(
                 chat_id=ADMIN_TELEGRAM_ID,
-                document=doc.file_id,
+                document=file_io,
                 caption=cap,
                 parse_mode="HTML",
                 reply_markup=keyboard,
