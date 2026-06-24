@@ -9,7 +9,7 @@ from telegram import (
 )
 from telegram.ext import (
     Application, CommandHandler, MessageHandler,
-    filters, ContextTypes,
+    filters, ContextTypes, CallbackQueryHandler,
 )
 
 import database as db
@@ -54,6 +54,8 @@ def get_badge(approved, total):
     elif rate >= 40: return "📈 Rising"
     else: return "🌱 Beginner"
 
+user_states = {}
+
 
 # ── /start ─────────────────────────────────────────────────────────────────────
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -80,33 +82,73 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-# ── Submit File ────────────────────────────────────────────────────────────────
+# ── Submit File (Updated to check for available works first) ───────────────────
 async def btn_submit(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # বাটন চাপলে সাবমিশন চেক করা হচ্ছে
     if not db.is_submissions_open():
         await update.message.reply_text(
             f"⚠️ *Submissions are Closed!*\n"
             f"{DIVIDER}\n\n"
             f"We are currently not accepting new file submissions at this time.\n\n"
-            f"📌 *Why is this closed?*\n"
-            f"  • The admin has paused the submission window.\n"
-            f"  • Existing files are currently under review.\n\n"
             f"📢 _You will be notified once submissions are open again._\n"
             f"Thank you for your cooperation! 🙏",
             parse_mode="Markdown",
         )
         return
 
+    active_tasks = db.get_all_tasks()
+    if not active_tasks:
+        await update.message.reply_text(
+            f"⚠️ *No Active Tasks!*\n"
+            f"{DIVIDER}\n\n"
+            f"There are currently no active work types set by the administrator.\n"
+            f"Please wait until the administrator adds new work types.",
+            parse_mode="Markdown",
+        )
+        return
+
+    # কাজ সিলেক্ট করার জন্য ডায়নামিক ইনলাইন কিবোর্ড তৈরি করা
+    kb_buttons = []
+    for task in active_tasks:
+        kb_buttons.append([InlineKeyboardButton(f"📂 {task['task_name']}", callback_data=f"seltask_{task['id']}")])
+
+    markup = InlineKeyboardMarkup(kb_buttons)
+
     await update.message.reply_text(
-        f"📁 *Submit File*\n"
+        f"📁 *Select Work Type*\n"
+        f"{DIVIDER}\n\n"
+        f"Please select which work file you want to submit from the options below:",
+        parse_mode="Markdown",
+        reply_markup=markup,
+    )
+
+
+# ── Callback handler for selecting task ────────────────────────────────────────
+async def cb_select_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    user_id = q.from_user.id
+
+    task_id = int(q.data.replace("seltask_", ""))
+    task = db.get_task_by_id(task_id)
+
+    if not task:
+        await q.message.reply_text("❌ Selected work type not found."); return
+
+    # ইউজারের স্টেট সেভ করা
+    user_states[user_id] = {
+        "state": "waiting_for_file",
+        "task_name": task["task_name"]
+    }
+
+    await q.message.reply_text(
+        f"📁 *Submit File for: {task['task_name']}*\n"
         f"{DIVIDER}\n\n"
         f"✅ Please send your *.xlsx* file now.\n\n"
         f"📌 *Rules:*\n"
         f"  • Only *.xlsx / .xls* file formats are accepted\n"
-        f"  • You can add a Caption with your file\n"
-        f"  • You will receive a Tracking ID upon submission\n\n"
-        f"_📎 Attach and send your file_",
-        parse_mode="Markdown",
+        f"  • You can add a Caption with your file\n\n"
+        f"_📎 Attach and send your file as a document_",
+        parse_mode="Markdown"
     )
 
 
@@ -147,8 +189,9 @@ async def _show_status(update: Update):
     for sub in subs[:10]:
         em   = STATUS_EMOJI.get(sub["status"], "❓")
         s_bn = STATUS_BN.get(sub["status"], sub["status"])
+        task_info = f" ({sub.get('task_name', 'General')})" if sub.get('task_name') else ""
         text += (
-            f"{em} *{sub['sub_id']}*\n"
+            f"{em} *{sub['sub_id']}*{task_info}\n"
             f"   📄 `{sub['file_name']}`\n"
             f"   📅 {fmt_dt(sub['submitted_at'])}\n"
             f"   📌 _{s_bn}_\n"
@@ -245,41 +288,23 @@ async def _show_account(update: Update):
         f"📅 *Joined:*  {fmt_dt(db_user['registered_at'])}\n"
         f"🏅 *Badge:*   {badge}\n\n"
 
-        f"{DIVIDER}\n\n"
-
         # ── Submissions
-        f"📊 *Submission Summary:*\n"
-        f"  📦 Total:        *{total_s}*\n"
-        f"  ✅ Approved:     *{approved}*\n"
-        f"  ⏳ Pending:      *{pending}*\n"
-        f"  ❌ Declined:     *{declined}*\n\n"
-        f"  📈 Success Rate:\n"
-        f"  {pbar(approved, total_s)} *{success}%*\n\n"
+        f"📁 *Submission Summary:*\n"
+        f"  • Total:        *{total_s}*\n"
+        f"  • ✅ Approved:     *{approved}*\n"
+        f"  • ⏳ Pending:      *{pending}*\n"
+        f"  • ❌ Declined:     *{declined}*\n\n"
+        f"  • Success Rate:    {pbar(approved, total_s)} *{success}%*\n\n"
     )
 
     if last_sub:
         em = STATUS_EMOJI.get(last_sub["status"], "❓")
         text += (
             f"  🕐 Latest Submission:\n"
-            f"  {em} `{last_sub['sub_id']}` — _{STATUS_BN.get(last_sub['status'], '')}_\n\n"
+            f"  {em} `{last_sub['sub_id']}` — {fmt_dt(last_sub['submitted_at'])}\n"
         )
 
-    text += f"{DIVIDER}\n\n"
-
-    # ── Payments
-    text += (
-        f"💰 *Payment Summary:*\n"
-        f"  💵 Total Transactions: *{len(pays)}* times\n"
-        f"  💎 Total Received:     *{total_p:,.0f} ৳*\n"
-    )
-
-    if last_pay:
-        text += (
-            f"  🕐 Latest Payment:\n"
-            f"  💲 *{last_pay['amount']:,.0f} ৳* — {fmt_dt(last_pay['sent_at'])}\n"
-        )
-
-    text += f"\n{DIVIDER}"
+    text += f"{DIVIDER}\n"
 
     kb = InlineKeyboardMarkup([
         [
@@ -316,7 +341,8 @@ async def _show_status_from_query(q):
     for sub in subs[:10]:
         em   = STATUS_EMOJI.get(sub["status"], "❓")
         s_bn = STATUS_BN.get(sub["status"], sub["status"])
-        text += f"{em} *{sub['sub_id']}*\n   📄 `{sub['file_name']}`\n   📌 _{s_bn}_\n\n"
+        task_info = f" ({sub.get('task_name', 'General')})" if sub.get('task_name') else ""
+        text += f"{em} *{sub['sub_id']}*{task_info}\n   📄 `{sub['file_name']}`\n   📌 _{s_bn}_\n\n"
     await q.message.reply_text(text, parse_mode="Markdown")
 
 async def _show_payments_from_query(q):
@@ -370,20 +396,29 @@ async def _show_help(update: Update):
 # ── File Handler ───────────────────────────────────────────────────────────────
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    if not db.get_user(user.id):
-        db.register_user(user.id, user.username, user.full_name)
+    user_id = user.id
 
-    # ইউজার সরাসরি ফাইল পাঠালেও সাবমিশন বন্ধ আছে কিনা চেক হবে
+    if not db.get_user(user_id):
+        db.register_user(user_id, user.username, user.full_name)
+
+    # সাবমিশন ওপেন আছে কিনা চেক
     if not db.is_submissions_open():
         await update.message.reply_text(
             f"⚠️ *Submissions are Closed!*\n"
             f"{DIVIDER}\n\n"
             f"We are currently not accepting new file submissions at this time.\n\n"
-            f"📌 *Why is this closed?*\n"
-            f"  • The admin has paused the submission window.\n"
-            f"  • Existing files are currently under review.\n\n"
             f"📢 _You will be notified once submissions are open again._\n"
             f"Thank you for your cooperation! 🙏",
+            parse_mode="Markdown",
+        )
+        return
+
+    # ইউজার কাজের ক্যাটাগরি সিলেক্ট করেছে কিনা চেক
+    state = user_states.get(user_id)
+    if not state or state.get("state") != "waiting_for_file":
+        await update.message.reply_text(
+            "⚠️ *Please select work type first!*\n\n"
+            "Click the **📁 Submit File** button to choose your task before sending the file.",
             parse_mode="Markdown",
         )
         return
@@ -401,13 +436,18 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     proc    = await update.message.reply_text("⏳ _Processing file..._", parse_mode="Markdown")
     caption = update.message.caption or ""
-    sub_id  = db.add_submission(user.id, doc.file_id, fname, caption)
+    task_name = state.get("task_name", "General")
+    
+    # ডাটাবেসে সেভ (task_name প্যারামিটার সহ)
+    sub_id  = db.add_submission(user_id, doc.file_id, fname, caption, task_name)
     await proc.delete()
+    user_states[user_id] = None # স্টেট রিসেট
 
     await update.message.reply_text(
         f"〔 ✅ *Submission Successful!* 〕\n"
         f"{DIVIDER}\n\n"
         f"🆔 Tracking ID: `{sub_id}`\n"
+        f"📂 Work Type: *{task_name}*\n"
         f"📄 File: `{fname}`\n"
         f"⏳ Status: *Pending*\n"
         f"🕐 Time: {fmt_dt(datetime.now().isoformat())}\n\n"
@@ -433,6 +473,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"🔔 <b>New Submission!</b>\n"
                 f"━━━━━━━━━━━━━━━━━━\n\n"
                 f"🆔 <code>{sub_id}</code>\n"
+                f"📂 <b>Work Type:</b> <code>{task_name}</code>\n"
                 f"👤 <b>{user.full_name}</b>\n"
                 f"   🔗 @{user.username or '—'}\n"
                 f"   🪪 <code>{user.id}</code>\n"
@@ -517,7 +558,8 @@ def create_user_app():
     # Single text dispatcher — handles all buttons reliably
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
-    # Inline buttons from account page
+    # Inline buttons
     app.add_handler(CallbackQueryHandler(cb_account, pattern=r"^acc_"))
+    app.add_handler(CallbackQueryHandler(cb_select_task, pattern=r"^seltask_")) # seltask callback ✅
 
     return app
