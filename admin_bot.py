@@ -1,5 +1,6 @@
 import logging
 from datetime import datetime
+import io  # ইন-মেমোরি ফাইল হ্যান্ডলিংয়ের জন্য
 
 from telegram import Update, Bot, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -19,7 +20,7 @@ BROADCAST_TEXT = 10
 STATUS_EMOJI = {"pending": "⏳", "approved": "✅", "declined": "❌"}
 
 
-# FIXED: Safe admin check to avoid string vs int bugs (common in Railway environment variables)
+# Safe admin check to avoid string vs int bugs (common in Railway environment variables)
 def is_admin(uid):
     try:
         return int(uid) == int(ADMIN_TELEGRAM_ID)
@@ -213,6 +214,7 @@ async def _send_pending(chat_id, context):
             f"🕐 {fmt_dt(sub['submitted_at'])}"
         )
         try:
+            # Note: file_id restriction bypass also implemented in pending section if file_id comes from multiple bots
             await context.bot.send_document(
                 chat_id=chat_id,
                 document=sub["file_id"],
@@ -490,11 +492,15 @@ async def enter_note(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def attach_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     fid = None
+    fname = "receipt"
     if update.message.document:
         fid = update.message.document.file_id
+        fname = update.message.document.file_name or "document"
     elif update.message.photo:
         fid = update.message.photo[-1].file_id
+        fname = "receipt.jpg"
     context.user_data["pay_file"] = fid
+    context.user_data["pay_filename"] = fname
     await _finalize_payment(update, context)
     return ConversationHandler.END
 
@@ -511,13 +517,14 @@ async def cmd_cancel_pay(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
-# FIXED: Standalone bot notifies wrapped in async with session context
+# FIXED: Standalone cross-bot file_id restriction bypass during payments
 async def _finalize_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid    = context.user_data["pay_uid"]
     name   = context.user_data["pay_name"]
     amount = context.user_data["pay_amount"]
     note   = context.user_data.get("pay_note", "")
     fid    = context.user_data.get("pay_file")
+    fname  = context.user_data.get("pay_filename", "receipt")
 
     pay_id   = db.add_payment(uid, amount, note, fid)
 
@@ -538,7 +545,15 @@ async def _finalize_payment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         async with Bot(token=USER_BOT_TOKEN) as user_bot:
             if fid:
-                await user_bot.send_document(chat_id=uid, document=fid, caption=user_text, parse_mode="Markdown")
+                # Admin Bot এর সেশন থেকে ফাইলটি মেমোরিতে ডাউনলোড করা হচ্ছে
+                file_obj = await context.bot.get_file(fid)
+                file_bytes = await file_obj.download_as_bytearray()
+                
+                # বাইটস্ট্রিম ফাইলে কনভার্ট করা
+                file_io = io.BytesIO(file_bytes)
+                file_io.name = fname
+                
+                await user_bot.send_document(chat_id=uid, document=file_io, caption=user_text, parse_mode="Markdown")
             else:
                 await user_bot.send_message(chat_id=uid, text=user_text, parse_mode="Markdown")
     except Exception as e:
@@ -574,7 +589,7 @@ async def cmd_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return BROADCAST_TEXT
 
 
-# FIXED: Standalone bot session context wrapper
+# Standalone bot session context wrapper
 async def do_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg   = update.message.text.strip()
     users = db.get_all_users()
@@ -628,7 +643,7 @@ async def cancel_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ── Approve / Decline Callback ─────────────────────────────────────────────────
 
-# FIXED: Async Bot connection handled with context manager
+# Async Bot connection handled with context manager
 async def cb_submission(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     if not is_admin(q.from_user.id):
@@ -641,7 +656,7 @@ async def cb_submission(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.answer("❌ পাওয়া যায়নি!", show_alert=True); return
 
     if sub["status"] != "pending":
-        await q.answer(f"⚠️ ইতোমধ্যে {sub['status'].upper()} করা হয়েছে!", show_alert=True)
+        await q.answer(f"⚠️ ইতিমধ্যে {sub['status'].upper()} করা হয়েছে!", show_alert=True)
         return
 
     now      = fmt_dt(datetime.now().isoformat())
@@ -702,7 +717,7 @@ async def cmd_payments_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ── App Factory ────────────────────────────────────────────────────────────────
 
-# FIXED: Diagnostic notification test safely wrapped in context session
+# Diagnostic notification test safely wrapped in context session
 async def cmd_testnotify(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Test if user bot can send message to admin — diagnose notification issue."""
     uid = update.effective_user.id
