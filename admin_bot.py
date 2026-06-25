@@ -1,238 +1,4 @@
-import logging, os, io, html, sys, telegram
-from datetime import datetime, timedelta
-from telegram import Update, Bot, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
-from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ConversationHandler, filters, ContextTypes
-import database as db
-from config import ADMIN_BOT_TOKEN, USER_BOT_TOKEN, ADMIN_TELEGRAM_ID, BOT_NAME, DIVIDER
-
-logger = logging.getLogger(__name__)
-SELECT_USER, ENTER_AMOUNT, ENTER_NOTE, ATTACH_FILE = range(4)
-ENTER_TASK_NAME = range(5, 6)
-BROADCAST_TEXT = 10
-STATUS_EMOJI = {"pending": "⏳", "approved": "✅", "declined": "❌"}
-
-# ── 4 Primary Reply Keyboard Buttons for Admin ───────────────────────────────
-ADMIN_MENU = ReplyKeyboardMarkup(
-    [
-        [KeyboardButton("📊 Dashboard"), KeyboardButton("📈 Analytics")],
-        [KeyboardButton("💳 Payments"), KeyboardButton("⚙️ Settings")]
-    ],
-    resize_keyboard=True,
-    is_persistent=True,
-)
-
-# ── Dynamic Premium Emojis Mapping ───────────────────────────────────────────
-CUSTOM_EMOJIS = {
-    "💎": '<tg-emoji emoji-id="5427168083074628963">💎</tg-emoji>', "📊": '<tg-emoji emoji-id="5231200819986047254">📊</tg-emoji>',
-    "💵": '<tg-emoji emoji-id="5409048419211682843">💵</tg-emoji>', "❓": '<tg-emoji emoji-id="5436113877181941026">❓</tg-emoji>',
-    "✔️": '<tg-emoji emoji-id="5206607081334906820">✔️</tg-emoji>', "💬": '<tg-emoji emoji-id="5443038326535759644">💬</tg-emoji>',
-    "❌": '<tg-emoji emoji-id="5210952531676504517">❌</tg-emoji>', "💰": '<tg-emoji emoji-id="6235459831302460476">💰</tg-emoji>',
-    "🔜": '<tg-emoji emoji-id="5440621591387980068">🔜</tg-emoji>', "⚠️": '<tg-emoji emoji-id="5447644880824181073">⚠️</tg-emoji>',
-    "🌐": '<tg-emoji emoji-id="5447410659077661506">🌐</tg-emoji>', "⛔️": '<tg-emoji emoji-id="5260293700088511294">⛔️</tg-emoji>',
-    "🔔": '<tg-emoji emoji-id="5458603043203327669">🔔</tg-emoji>', "✉️": '<tg-emoji emoji-id="5253742260054409879">✉️</tg-emoji>',
-    "🔒": '<tg-emoji emoji-id="5296369303661067030">🔒</tg-emoji>', "⚙️": '<tg-emoji emoji-id="5895577117592128901">⚙️</tg-emoji>',
-    "🤔": '<tg-emoji emoji-id="5210729536974503652">🤔</tg-emoji>', "on": '<tg-emoji emoji-id="5210881166499921911">🔓</tg-emoji>',
-    "off": '<tg-emoji emoji-id="5208840468623801290">🔒</tg-emoji>', "🗓": '<tg-emoji emoji-id="5413879192267805083">🗓</tg-emoji>',
-    "⭐️": '<tg-emoji emoji-id="5438496463044752972">⭐️</tg-emoji>', "👀": '<tg-emoji emoji-id="5210956306952758910">👀</tg-emoji>',
-    "⚡️": '<tg-emoji emoji-id="5456140674028019486">⚡️</tg-emoji>', "📌": '<tg-emoji emoji-id="5397782960512444700">📌</tg-emoji>',
-    "🖥": '<tg-emoji emoji-id="5282843764451195532">🖥</tg-emoji>'
-}
-
-def em(key): return CUSTOM_EMOJIS.get(key, key)
-
-def is_admin(uid):
-    try: return int(uid) == int(ADMIN_TELEGRAM_ID)
-    except: return str(uid) == str(ADMIN_TELEGRAM_ID)
-
-async def cmd_myid(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(f"{em('📌')} <b>Telegram ID:</b>\n<code>{update.effective_user.id}</code>\n\n_Railway variable: ADMIN_TELEGRAM_ID_", parse_mode="HTML")
-
-def fmt_dt(s):
-    from datetime import datetime
-    try: return datetime.fromisoformat(s).strftime("%d %b %Y  %I:%M %p")
-    except: return s or "N/A"
-
-def pbar(val, total, w=8):
-    if total == 0: return "░" * w
-    f = round(val / total * w)
-    return "█" * f + "░" * (w - f)
-
-def pct(val, total): return round(val / total * 100) if total else 0
-
-
-# Admin Menu Keyboard with "Manage Works" option
-def _dashboard_keyboard():
-    is_open = db.is_submissions_open()
-    status_btn = InlineKeyboardButton("🔒 Close Submissions" if is_open else "🔓 Open Submissions", callback_data="nav_toggle_subs")
-    
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("⏳ Pending", callback_data="nav_pending"), InlineKeyboardButton("📋 History", callback_data="nav_history")],
-        [InlineKeyboardButton("👥 Members", callback_data="nav_members"), InlineKeyboardButton("💰 Payments", callback_data="nav_payments")],
-        [InlineKeyboardButton("📊 Stats", callback_data="nav_stats"), InlineKeyboardButton("📣 Broadcast", callback_data="nav_broadcast")],
-        [InlineKeyboardButton("💸 Send Payment", callback_data="nav_sendpayment")],
-        [InlineKeyboardButton("🛠️ Manage Works", callback_data="nav_manage_tasks")], # Manage Tasks Button
-        [status_btn]
-    ])
-
-
-def _build_dashboard_text(stats):
-    alert = f"\n{em('🔔')} <b>{stats['pending']} Pending!</b>" if stats["pending"] else ""
-    t = stats["total_subs"]
-    is_open = db.is_submissions_open()
-    status_text = "🟢 OPEN" if is_open else "🔴 CLOSED"
-    
-    return (
-        f"〔 👨‍💼 <b>Admin Panel</b> 〕\n🔷 {BOT_NAME}\n{DIVIDER}{alert}\n\n"
-        f"📂 Submission Window: <b>{status_text}</b>\n\n"
-        f"{em('📊')} <b>Stats:</b>\n  👥 Members:      <b>{stats['total_users']}</b> users\n  📁 Submissions:  <b>{t}</b> files\n\n"
-        f"  ✅ Approved: {pbar(stats['approved'],t)} <b>{stats['approved']}</b> ({pct(stats['approved'],t)}%)\n"
-        f"  ⏳ Pending:  {pbar(stats['pending'],t)} <b>{stats['pending']}</b> ({pct(stats['pending'],t)}%)\n"
-        f"  ❌ Declined: {pbar(stats['declined'],t)} <b>{stats['declined']}</b> ({pct(stats['declined'],t)}%)\n\n"
-        f"  {em('💰')} Total Paid: <b>{stats['total_paid']:,.0f} ৳</b>\n{DIVIDER}\n_Select any option_ 👇"
-    )
-
-async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id):
-        await update.message.reply_text(f"{em('⛔️')} <b>Unauthorized!</b>\n\nID: <code>{update.effective_user.id}</code>", parse_mode="HTML")
-        return
-    await update.message.reply_text(_build_dashboard_text(db.get_stats()), parse_mode="HTML", reply_markup=ADMIN_MENU)
-
-
-async def cb_nav(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    q = update.callback_query
-    if not is_admin(q.from_user.id):
-        await q.answer("⛔ Unauthorized", show_alert=True); return
-    await q.answer()
-    if q.data == "nav_pending": await _send_pending(q.message.chat_id, context)
-    elif q.data == "nav_history": await _send_history_paginated(q.message.chat_id, context, offset=0, edit=True, q=q)
-    elif q.data == "nav_members": await _send_members(q.message.chat_id, context)
-    elif q.data == "nav_payments": await _send_payments(q.message.chat_id, context)
-    elif q.data == "nav_stats": await _send_stats(q.message.chat_id, context)
-    elif q.data == "nav_done":
-        pass
-    
-    # ── Manage Tasks View Handler ──
-    elif q.data == "nav_manage_tasks" or q.data == "nav_back_tasks":
-        await _show_manage_tasks_menu(q.message.chat_id, context)
-        
-    elif q.data == "nav_back_dashboard":
-        stats = db.get_stats()
-        await q.edit_message_text(_build_dashboard_text(stats), parse_mode="HTML", reply_markup=_dashboard_keyboard())
-
-    # Submissions settings page toggle (Returns back to settings page)
-    elif q.data == "nav_toggle_subs_settings":
-        current_status = db.is_submissions_open()
-        new_status = not current_status
-        db.set_submissions_open(new_status)
-        
-        status_word = "OPENED" if new_status else "CLOSED"
-        await q.answer(f"📂 Submissions are now {status_word}!", show_alert=True)
-        
-        status_btn = InlineKeyboardButton("🔒 Close Submissions" if new_status else "🔓 Open Submissions", callback_data="nav_toggle_subs_settings")
-        kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🛠️ Manage Works", callback_data="nav_manage_tasks")],
-            [InlineKeyboardButton("👥 Members", callback_data="nav_members")],
-            [status_btn],
-            [InlineKeyboardButton("◀️ Back to Dashboard", callback_data="nav_back_dashboard")]
-        ])
-        await q.edit_message_text("〔 ⚙️ <b>Settings & Configuration</b> 〕\n" + DIVIDER + "\n\nAdjust your bot's operation parameters:", parse_mode="HTML", reply_markup=kb)
-
-
-# Manage Tasks Menu Helper (OperationalError Removed)
-async def _show_manage_tasks_menu(chat_id, context):
-    db_conn = db._conn()
-    unique_tasks_rows = db_conn.execute("SELECT id, task_name FROM tasks").fetchall()
-    db_conn.close()
-
-    text = f"{em('⚙️')} <b>Manage Work Types</b>\n{DIVIDER}\n\n"
-    if not unique_tasks_rows:
-        text += "⚠️ No custom work types set. Users can't submit files right now!\n\n_Click '+ Add New Work' button below to create one._"
-    else:
-        text += f"{em('📌')} <b>Current Active Works:</b>\n"
-        for i, t in enumerate(unique_tasks_rows, 1):
-            text += f"   {i}. <b>{t['task_name']}</b>\n"
-        text += "\n_Click trash icon next to a work below to delete it._"
-
-    kb_buttons = []
-    for t in unique_tasks_rows:
-        kb_buttons.append([
-            InlineKeyboardButton(f"📄 {t['task_name']}", callback_data="nav_done"),
-            InlineKeyboardButton("❌ Delete", callback_data=f"deltask_{t['id']}")
-        ])
-    kb_buttons.append([InlineKeyboardButton("➕ Add New Work", callback_data="add_task_init")])
-    kb_buttons.append([InlineKeyboardButton("◀️ Back to Dashboard", callback_data="nav_back_dashboard")])
-
-    await context.bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb_buttons))
-
-
-# Delete Task Callback
-async def cb_delete_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    q = update.callback_query
-    if not is_admin(q.from_user.id): await q.answer("⛔"); return
-    await q.answer()
-
-    task_id = int(q.data.replace("deltask_", ""))
-    task = db.get_task_by_id(task_id)
-    if task:
-        db.delete_task(task_id)
-        await q.message.reply_text(f"🗑️ Work type **'{task['task_name']}'** has been deleted!", parse_mode="Markdown")
-    
-    # Refresh menu
-    await _show_manage_tasks_menu(q.message.chat_id, context)
-
-
-async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if is_admin(update.effective_user.id): await _send_stats(update.message.chat_id, context)
-
-# Back to dashboard button added
-async def _send_stats(chat_id, context):
-    s = db.get_stats()
-    t = s["total_subs"]
-    text = (
-        f"{em('📊')} <b>Detailed Statistics</b>\n{DIVIDER}\n\n👥 <b>Members:</b> <b>{s['total_users']}</b> active\n\n"
-        f"📁 <b>Submissions:</b> <b>{t}</b>\n"
-        f"   ✅ Approved: <b>{s['approved']}</b>  {pbar(s['approved'],t)} {pct(s['approved'],t)}%\n"
-        f"   ⏳ Pending:  <b>{s['pending']}</b>  {pbar(s['pending'],t)} {pct(s['pending'],t)}%\n"
-        f"   ❌ Declined: <b>{s['declined']}</b>  {pbar(s['declined'],t)} {pct(s['declined'],t)}%\n\n"
-        f"{em('💰')} <b>Payments:</b> <b>{s['total_payments']}</b> times\n   Total Paid: <b>{s['total_paid']:,.0f} ৳</b>\n\n{DIVIDER}"
-    )
-    kb = InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Back to Dashboard", callback_data="nav_back_dashboard")]])
-    await context.bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=kb)
-
-async def cmd_pending(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if is_admin(update.effective_user.id): await _send_pending(update.message.chat_id, context)
-
-# sqlite3.Row object get method bypass
-async def _send_pending(chat_id, context):
-    subs = db.get_pending_submissions()
-    if not subs:
-        await context.bot.send_message(chat_id, "✅ *No Pending Submissions Found!*", parse_mode="Markdown"); return
-    await context.bot.send_message(chat_id, f"{em('⏳')} <b>{len(subs)} Pending Submissions</b>", parse_mode="HTML")
-    for sub in subs[:6]:
-        sub_dict = dict(sub) # Row to Dict Conversion 
-        kb = InlineKeyboardMarkup([[InlineKeyboardButton("✅  Approve", callback_data=f"approve_{sub_dict['sub_id']}"), InlineKeyboardButton("❌  Decline", callback_data=f"decline_{sub_dict['sub_id']}")]])
-        
-        # HTML characters escaping to ensure robustness
-        safe_sub_id = html.escape(str(sub_dict['sub_id']))
-        safe_task = html.escape(str(sub_dict.get('task_name', 'General')))
-        safe_name = html.escape(str(sub_dict['full_name']))
-        safe_user = html.escape(str(sub_dict['username'] or '—'))
-        safe_fname = html.escape(str(sub_dict['file_name']))
-        safe_caption = html.escape(str(sub_dict['caption'] or 'No caption'))
-        
-        cap = (
-            f"📨 <b>{safe_sub_id}</b>\n"
-            f"━━━━━━━━━━━━━━━━━━\n"
-            f"📂 <b>Work Type:</b> <code>{safe_task}</code>\n"
-            f"👤 <b>{safe_name}</b> (@{safe_user})\n"
-            f"📄 <code>{safe_fname}</code>\n"
-            f"💬 {safe_caption}\n"
-            f"📅 {fmt_dt(sub_dict['submitted_at'])}"
-        )
-        try: await context.bot.send_document(chat_id=chat_id, document=sub_dict["file_id"], caption=cap, parse_mode="HTML", reply_markup=kb)
-        except Exception as e: logger.error(f"Doc send error: {e}")
-
-     # FIXED: Paginated 7-Days Submission History with robust HTML escaping
+# FIXED: Paginated 7-Days Submission History with robust HTML escaping
 async def _send_history_paginated(chat_id, context, offset=0, edit=False, q=None):
     from datetime import datetime, timedelta # Local safe imports
     limit = 5
@@ -793,14 +559,14 @@ async def cmd_testnotify(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ── New /testemoji and /debuginfo Commands ───────────────────────────────────
 
-# FIXED: Command handler to test Telegram Custom Premium Emoji rendering (REVISED: Invalid emoji tag removed) ✅
+# FIXED: Command handler to test Telegram Custom Premium Emoji rendering (REVISED: Invalid emoji tag removed)
 async def cmd_testemoji(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     text_2_fallback = '<tg-emoji emoji-id="6037182932370590949">💀</tg-emoji> TEST 1 (Standard Custom Emoji Tag)'
     text_3 = '💀 TEST 2 (Plain Fallback Emoji)'
     
     tests = [
-        ("Method 1: Nested <tg-emoji> Fallback", text_2_fallback, "HTML"),
+        ("Method 1: Nested tg-emoji Fallback", text_2_fallback, "HTML"), # FIXED: Angle brackets removed from label to prevent HTML parsing crash ✅
         ("Method 2: Plain Fallback", text_3, None)
     ]
     await update.message.reply_text("🚀 <b>Starting Custom Emoji rendering tests...</b> Check server logs for response data.", parse_mode="HTML")
@@ -906,7 +672,7 @@ def create_admin_app():
     bc_conv = ConversationHandler(
         entry_points=[
             CommandHandler("broadcast", cmd_broadcast),
-            CallbackQueryHandler(cb_nav_broadcast, pattern=r"^nav_broadcast$"), # FIXED: Registered dashboard button in ConversationHandler ✅
+            CallbackQueryHandler(cb_nav_broadcast, pattern=r"^nav_broadcast$"), # Dashboard broadcast button registered in ConversationHandler ✅
         ],
         states={
             BROADCAST_TEXT: [
