@@ -232,7 +232,7 @@ async def _send_pending(chat_id, context):
         try: await context.bot.send_document(chat_id=chat_id, document=sub_dict["file_id"], caption=cap, parse_mode="HTML", reply_markup=kb)
         except Exception as e: logger.error(f"Doc send error: {e}")
 
-        # FIXED: Paginated 7-Days Submission History with robust HTML escaping
+     # FIXED: Paginated 7-Days Submission History with robust HTML escaping
 async def _send_history_paginated(chat_id, context, offset=0, edit=False, q=None):
     from datetime import datetime, timedelta # Local safe imports
     limit = 5
@@ -628,7 +628,7 @@ async def _finalize_payment(update, context: ContextTypes.DEFAULT_TYPE):
 
 # ── Broadcast ─────────────────────────────────────────────────────────────────
 
-# FIXED: Broadcast entry point from CallbackQuery
+# Broadcast entry point from CallbackQuery
 async def cb_nav_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     if not is_admin(q.from_user.id):
@@ -793,16 +793,15 @@ async def cmd_testnotify(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ── New /testemoji and /debuginfo Commands ───────────────────────────────────
 
-# FIXED: Command handler to test Telegram Custom Premium Emoji rendering
+# FIXED: Command handler to test Telegram Custom Premium Emoji rendering (REVISED: Invalid emoji tag removed) ✅
 async def cmd_testemoji(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    text_1_fallback = '<emoji id="6037182932370590949">💀</emoji> TEST 1 (With fallback inside)'
-    text_2_fallback = '<tg-emoji emoji-id="6037182932370590949">💀</tg-emoji> TEST 2 (With fallback inside)'
-    text_3 = '💀 TEST 3 (Plain Fallback)'
+    text_2_fallback = '<tg-emoji emoji-id="6037182932370590949">💀</tg-emoji> TEST 1 (Standard Custom Emoji Tag)'
+    text_3 = '💀 TEST 2 (Plain Fallback Emoji)'
+    
     tests = [
-        ("Method 1: Nested <emoji> Fallback", text_1_fallback, "HTML"),
-        ("Method 2: Nested <tg-emoji> Fallback", text_2_fallback, "HTML"),
-        ("Method 3: Plain Fallback", text_3, None)
+        ("Method 1: Nested <tg-emoji> Fallback", text_2_fallback, "HTML"),
+        ("Method 2: Plain Fallback", text_3, None)
     ]
     await update.message.reply_text("🚀 <b>Starting Custom Emoji rendering tests...</b> Check server logs for response data.", parse_mode="HTML")
     for label, payload, parse_mode in tests:
@@ -836,7 +835,7 @@ async def cmd_payments_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_admin(update.effective_user.id): await _send_payments(update.message.chat_id, context)
 
 
-# FIXED: Reusable main menu reply buttons handler (DEFINED) ✅
+# FIXED: Reusable main menu reply buttons handler (DEFINED & IMPLEMENTED) ✅
 async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (update.message.text or "").strip()
     uid = update.effective_user.id
@@ -907,7 +906,7 @@ def create_admin_app():
     bc_conv = ConversationHandler(
         entry_points=[
             CommandHandler("broadcast", cmd_broadcast),
-            CallbackQueryHandler(cb_nav_broadcast, pattern=r"^nav_broadcast$"), # Dashboard broadcast button registered in ConversationHandler ✅
+            CallbackQueryHandler(cb_nav_broadcast, pattern=r"^nav_broadcast$"), # FIXED: Registered dashboard button in ConversationHandler ✅
         ],
         states={
             BROADCAST_TEXT: [
@@ -945,7 +944,7 @@ def create_admin_app():
     app.add_handler(CommandHandler("members", cmd_members_cmd))
     app.add_handler(CommandHandler("payments", cmd_payments_cmd))
     
-    # Debug testing commands registered ✅
+    # New debug testing commands registered here ✅
     app.add_handler(CommandHandler("testemoji", cmd_testemoji))
     app.add_handler(CommandHandler("debuginfo", cmd_debuginfo))
     
