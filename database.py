@@ -55,24 +55,24 @@ def init_db():
         CREATE TABLE IF NOT EXISTS tasks (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
             task_name   TEXT UNIQUE,
+            start_time  TEXT    DEFAULT '00:00',
+            end_time    TEXT    DEFAULT '23:59',
             created_at  TEXT
         );
     """)
 
-    # Safe database migration: submissions টেবিলে task_name কলাম যুক্ত করা
+    # Safe database migrations
     try:
         db.execute("ALTER TABLE submissions ADD COLUMN task_name TEXT DEFAULT 'General'")
     except sqlite3.OperationalError:
         pass
 
-    # FIXED: tasks টেবিলে সময় নিয়ন্ত্রণ করার জন্য start_time ও end_time কলাম যুক্ত করা হয়েছে
     try:
         db.execute("ALTER TABLE tasks ADD COLUMN start_time TEXT DEFAULT '00:00'")
         db.execute("ALTER TABLE tasks ADD COLUMN end_time TEXT DEFAULT '23:59'")
     except sqlite3.OperationalError:
         pass
 
-    # ডিফল্ট সেটিংস ইনসার্ট
     db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('submissions_open', '1')")
     db.commit()
     db.close()
@@ -99,19 +99,23 @@ def set_submissions_open(status: bool):
 
 # ── Tasks Management Helpers ──────────────────────────────────────────────────
 
-def add_task(task_name, start_time="00:00", end_time="23:59"):
+def add_task(task_name):
     db = _conn()
     try:
-        db.execute(
-            "INSERT INTO tasks (task_name, start_time, end_time, created_at) VALUES (?, ?, ?, ?)", 
-            (task_name, start_time, end_time, datetime.now().isoformat())
-        )
+        db.execute("INSERT INTO tasks (task_name, created_at) VALUES (?, ?)", (task_name, datetime.now().isoformat()))
         db.commit()
         success = True
     except sqlite3.IntegrityError:
         success = False
     db.close()
     return success
+
+
+def update_task_schedule(task_id, start_time, end_time):
+    db = _conn()
+    db.execute("UPDATE tasks SET start_time=?, end_time=? WHERE id=?", (start_time, end_time, task_id))
+    db.commit()
+    db.close()
 
 
 def delete_task(task_id):
