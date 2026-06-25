@@ -57,32 +57,47 @@ def get_badge(approved, total):
 user_states = {}
 
 
-# ── /start welcome message (Updated as requested - No inline buttons) ─────────
+# ── /start welcome message (Date Only - Time Excluded) ────────────────────────
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user   = update.effective_user
     is_new = db.get_user(user.id) is None
     db.register_user(user.id, user.username, user.full_name)
 
-    # ডেটাবেস থেকে মেম্বারের জয়েনিং ডেট সংগ্রহ করা
     db_user = db.get_user(user.id)
-    joined_date = fmt_dt(db_user['registered_at']) if db_user else fmt_dt(datetime.now().isoformat())
+    
+    # BDT অনুযায়ী শুধুমাত্র আজকের তারিখ (দিন মাস বছর) বের করার জন্য লাইব্রেরি
+    from datetime import datetime, timedelta, timezone
+    bdt_tz = timezone(timedelta(hours=6))
+    
+    try:
+        if db_user and db_user['registered_at']:
+            # সময় বাদ দিয়ে শুধুমাত্র তারিখ ফরম্যাট (যেমন: 25 Jun 2026) করা হচ্ছে
+            joined_date = datetime.fromisoformat(db_user['registered_at']).strftime("%d %b %Y")
+        else:
+            joined_date = datetime.now(bdt_tz).strftime("%d %b %Y")
+    except Exception:
+        joined_date = datetime.now(bdt_tz).strftime("%d %b %Y")
 
     welcome_text = (
-        f"💎 <b>Matrix File Receiver</b> 🤖\n\n"
-        f"Welcome, <b>{user.full_name}</b> 👋\n\n"
+        f"💎 <b>Matrix File Receiver</b> 🤖\n"
+        f"Welcome, <b>{user.full_name}</b> 👋\n"
         f"🆔 <b>ID:</b> <code>{user.id}</code>\n"
-        f"📅 <b>Member Since:</b> {joined_date}\n\n\n"
-        f"<b>Submit Your Daily Work Files and Earn</b>💰\n"
+        f"📅 <b>Member Since:</b> {joined_date}\n\n"
         f"━━━━━━━━━━━━━━\n"
         f"📂 File Submission\n"
         f"🤑 Withdraw Payments\n"
         f"🔔 Real-Time Notifications\n"
         f"🔒 Secure Processing\n"
-        f"━━━━━━━━━━━━━━\n\n"
-        f"🚀 Ready to submit your first file?\n\n"
+        f"━━━━━━━━━━━━━━\n"
+        f"🚀 🚀 Ready to get started?\n"
         f"Choose an option from the menu below.👇"
     )
 
+    await update.message.reply_text(
+        welcome_text,
+        parse_mode="HTML",
+        reply_markup=MENU,
+    )
     await update.message.reply_text(
         welcome_text,
         parse_mode="HTML", # HTML parsing enabled for clean bold and code styling
