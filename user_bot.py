@@ -57,30 +57,37 @@ def get_badge(approved, total):
 user_states = {}
 
 
-# ── /start ─────────────────────────────────────────────────────────────────────
+# ── /start welcome message (Updated as requested - No inline buttons) ─────────
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user   = update.effective_user
     is_new = db.get_user(user.id) is None
     db.register_user(user.id, user.username, user.full_name)
 
-    badge = "🆕 *New account created successfully!*" if is_new else "🔄 _Welcome back!_"
+    # ডেটাবেস থেকে মেম্বারের জয়েনিং ডেট সংগ্রহ করা
+    db_user = db.get_user(user.id)
+    joined_date = fmt_dt(db_user['registered_at']) if db_user else fmt_dt(datetime.now().isoformat())
 
-    await update.message.reply_text(
-        f"〔 🔷 *{BOT_NAME}* 〕\n"
-        f"{DIVIDER}\n\n"
-        f"👋 Hello, *{user.first_name}!*\n"
-        f"{badge}\n\n"
-        f"📌 *What you can do:*\n\n"
-        f"  📁  Send `.xlsx` files to submit\n"
-        f"  📊  Track submission status\n"
-        f"  💰  View payment history\n"
-        f"  👤  View your account details\n\n"
-        f"{DIVIDER}\n"
-        f"_Choose any option from the menu below_ 👇",
-        parse_mode="Markdown",
-        reply_markup=MENU,
+    welcome_text = (
+        f"💎 <b>Matrix File Receiver</b> 🤖\n\n"
+        f"Welcome, <b>{user.full_name}</b> 👋\n\n"
+        f"🆔 <b>ID:</b> <code>{user.id}</code>\n"
+        f"📅 <b>Member Since:</b> {joined_date}\n\n\n"
+        f"<b>Submit Your Daily Work Files and Earn</b>💰\n"
+        f"━━━━━━━━━━━━━━\n"
+        f"📂 File Submission\n"
+        f"🤑 Withdraw Payments\n"
+        f"🔔 Real-Time Notifications\n"
+        f"🔒 Secure Processing\n"
+        f"━━━━━━━━━━━━━━\n\n"
+        f"🚀 Ready to submit your first file?\n\n"
+        f"Choose an option from the menu below.👇"
     )
 
+    await update.message.reply_text(
+        welcome_text,
+        parse_mode="HTML", # HTML parsing enabled for clean bold and code styling
+        reply_markup=MENU,
+    )
 
 # ── Submit File ────────────────────────────────────────────────────────────────
 async def btn_submit(update: Update, context: ContextTypes.DEFAULT_TYPE):
