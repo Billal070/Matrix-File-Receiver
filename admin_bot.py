@@ -103,7 +103,7 @@ def _build_dashboard_text(stats):
         f"  ✅ Approved: {pbar(stats['approved'],t)} <b>{stats['approved']}</b> ({pct(stats['approved'],t)}%)\n"
         f"  ⏳ Pending:  {pbar(stats['pending'],t)} <b>{stats['pending']}</b> ({pct(stats['pending'],t)}%)\n"
         f"  ❌ Declined: {pbar(stats['declined'],t)} <b>{stats['declined']}</b> ({pct(stats['declined'],t)}%)\n\n"
-        f"  {em('💰')} Total Paid: <b>{stats['total_paid']:,.0f} ৳</b>\n{DIVIDER}\n_Select any option_ 👇"
+        f"  💰 Total Paid: <b>{stats['total_paid']:,.0f} ৳</b>\n{DIVIDER}\n_Select any option_ 👇"
     )
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -784,10 +784,18 @@ async def cb_submission(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ── Debug ─────────────────────────────────────────────────────────────────────
 async def cmd_testnotify(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    uid = update.effective_user.id
-    await update.message.reply_text("🔍 Testing... wait.")
-    info = f"📋 <b>Check:</b>\nYour ID: <code>{uid}</code>\nADMIN_TELEGRAM_ID: <code>{ADMIN_TELEGRAM_ID}</code>\nMatch: {is_match}"
+    uid = update.effective_user.id; await update.message.reply_text("🔍 Testing... wait.")
+    is_match = str(uid) == str(ADMIN_TELEGRAM_ID)
+    info = f"📋 <b>Check:</b>\nID: <code>{uid}</code>\nADMIN_TELEGRAM_ID: <code>{ADMIN_TELEGRAM_ID}</code>\nMatch: {is_match}"
     await update.message.reply_text(info, parse_mode="HTML")
+    
+    # Premium Emoji Rendering Test Line Added ✅
+    await update.message.reply_text(
+        '💎 <b>Premium Emoji Render Test:</b>\n'
+        '<tg-emoji emoji-id="5427168083074628963">💎</tg-emoji> Matrix File Receiver',
+        parse_mode="HTML"
+    )
+    
     try:
         async with Bot(token=USER_BOT_TOKEN) as test_bot:
             bot_info = await test_bot.get_me()
@@ -806,6 +814,7 @@ async def cmd_members_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_admin(update.effective_user.id): await _send_members(update.message.chat_id, context)
 async def cmd_payments_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_admin(update.effective_user.id): await _send_payments(update.message.chat_id, context)
+
 
 # Dispatcher handler for Admin reply keyboard buttons (All Settings toggling safe)
 async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -844,4 +853,86 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ── App Factory ───────────────────────────────────────────────────────────────
-de
+def create_admin_app():
+    app = Application.builder().token(ADMIN_BOT_TOKEN).build()
+
+    pay_conv = ConversationHandler(
+        entry_points=[
+            CommandHandler("sendpayment", cmd_sendpayment),
+            CallbackQueryHandler(cb_nav_sendpayment, pattern=r"^nav_sendpayment$"),  
+            CallbackQueryHandler(cb_quickpay, pattern=r"^quickpay_"),               
+        ],
+        states={
+            SELECT_USER: [CallbackQueryHandler(cb_select_user, pattern=r"^(payto_|pay_cancel)")],
+            ENTER_AMOUNT: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, enter_amount),
+                CallbackQueryHandler(cb_cancel_pay_callback, pattern=r"^pay_cancel$") 
+            ],
+            ENTER_NOTE: [
+                CallbackQueryHandler(cb_note_skip, pattern=r"^note_skip$"),
+                CallbackQueryHandler(cb_cancel_pay_callback, pattern=r"^pay_cancel$"), 
+                MessageHandler(filters.TEXT & ~filters.COMMAND, enter_note)
+            ],
+            ATTACH_FILE: [
+                CommandHandler("skip", cmd_skip_file),
+                CallbackQueryHandler(cb_skip_file_callback, pattern=r"^file_skip$"),  
+                CallbackQueryHandler(cb_cancel_pay_callback, pattern=r"^pay_cancel$"), 
+                MessageHandler(filters.Document.ALL | filters.PHOTO, attach_file)
+            ],
+        },
+        fallbacks=[CommandHandler("cancel", cmd_cancel_pay), CommandHandler("start", cmd_start)],
+        per_message=False, allow_reentry=True
+    )
+
+    bc_conv = ConversationHandler(
+        entry_points=[
+            CommandHandler("broadcast", cmd_broadcast),
+            CallbackQueryHandler(cb_nav_broadcast, pattern=r"^nav_broadcast$"), # Inline dashboard broadcast button registered
+        ],
+        states={
+            BROADCAST_TEXT: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, do_broadcast),
+                CallbackQueryHandler(cb_cancel_broadcast, pattern=r"^bc_cancel$") 
+            ]
+        },
+        fallbacks=[CommandHandler("cancel", cancel_broadcast)],
+        per_message=False, allow_reentry=True
+    )
+
+    # Task management conversation handler
+    task_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(cb_add_task_init, pattern=r"^add_task_init$")],
+        states={
+            ENTER_TASK_NAME: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, enter_task_name),
+                CallbackQueryHandler(cb_cancel_task_callback, pattern=r"^task_cancel$") 
+            ],
+        },
+        fallbacks=[CommandHandler("cancel", cmd_cancel_task)],
+        per_message=False, allow_reentry=True
+    )
+
+    app.add_handler(pay_conv)
+    app.add_handler(bc_conv)
+    app.add_handler(task_conv) 
+    
+    app.add_handler(CommandHandler("myid", cmd_myid))
+    app.add_handler(CommandHandler("testnotify", cmd_testnotify))
+    app.add_handler(CommandHandler("start", cmd_start))
+    app.add_handler(CommandHandler("stats", cmd_stats))
+    app.add_handler(CommandHandler("pending", cmd_pending))
+    app.add_handler(CommandHandler("history", cmd_history_cmd))
+    app.add_handler(CommandHandler("members", cmd_members_cmd))
+    app.add_handler(CommandHandler("payments", cmd_payments_cmd))
+    
+    # Callback query handlers
+    app.add_handler(CallbackQueryHandler(cb_nav, pattern=r"^nav_"))
+    app.add_handler(CallbackQueryHandler(cb_submission, pattern=r"^(approve|decline)_"))
+    app.add_handler(CallbackQueryHandler(cb_member_detail, pattern=r"^member_\d+$"))
+    app.add_handler(CallbackQueryHandler(cb_delete_task, pattern=r"^deltask_\d+$")) 
+    app.add_handler(CallbackQueryHandler(cb_paid_who, pattern=r"^nav_paidwho_")) # Paid members pagination handler
+    app.add_handler(CallbackQueryHandler(cb_subhist_pagination, pattern=r"^nav_subhist_")) # Submission history pagination handler
+    
+    # Text buttons dispatcher registered at the end
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_admin_text))
+    return app
