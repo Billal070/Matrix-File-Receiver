@@ -239,6 +239,51 @@ async def _send_pending(chat_id, context):
 ENTER_TASK_NAME, ENTER_START_TIME, ENTER_END_TIME = range(5, 8)
 EDIT_START_TIME, EDIT_END_TIME = range(8, 10)
 
+# ── Show sub-menu detail page for a specific work ──
+async def cb_work_manage(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query; await q.answer()
+    task_id = int(q.data.replace("work_manage_", ""))
+    task = db.get_task_by_id(task_id)
+    if not task: await q.message.reply_text("❌ Selected work not found."); return
+
+    def format_12h(time_str):
+        try: return datetime.strptime(time_str, "%H:%M").strftime("%I:%M %p")
+        except: return time_str
+        
+    start_time = task.get('start_time', '00:00')
+    end_time = task.get('end_time', '23:59')
+    
+    if start_time == "00:00" and end_time == "23:59":
+        sched_text = "🟢 <b>Open 24/7</b> (No limits)"
+    else:
+        sched_text = f"{status_icon(start_time, end_time)} <b>{format_12h(start_time)} to {format_12h(end_time)}</b> (BDT)"
+        
+    text = (
+        f"📂 <b>Work Details: {task['task_name']}</b>\n{DIVIDER}\n\n"
+        f"🕒 <b>Allowed Submission Window:</b>\n"
+        f"👉 {sched_text}\n\n"
+        f"Select an administration action below:"
+    )
+    
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("⏰ Set Submission Schedule", callback_data=f"work_setsched_{task_id}")],
+        [InlineKeyboardButton("🔓 Disable Time (Open 24/7)", callback_data=f"work_disablesched_{task_id}")],
+        [InlineKeyboardButton("🗑️ Delete Work Type", callback_data=f"deltask_{task_id}")],
+        [InlineKeyboardButton("◀️ Back to Works List", callback_data="nav_manage_tasks")]
+    ])
+    await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
+
+# Disable/turn off schedule callback
+async def cb_work_disablesched(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    task_id = int(q.data.replace("work_disablesched_", ""))
+    db.update_task_schedule(task_id, "00:00", "23:59")
+    await q.answer("🔓 Time restrictions disabled (Open 24/7)!", show_alert=True)
+    
+    # Redirect back to work detail page
+    q.data = f"work_manage_{task_id}"
+    await cb_work_manage(update, context)
+
 # FIXED: Paginated 7-Days Submission History with robust HTML escaping
 async def _send_history_paginated(chat_id, context, offset=0, edit=False, q=None):
     from datetime import datetime, timedelta # Local safe imports
@@ -270,7 +315,7 @@ async def _send_history_paginated(chat_id, context, offset=0, edit=False, q=None
         else: await context.bot.send_message(chat_id, msg_text, parse_mode="Markdown", reply_markup=kb)
         return
 
-    text = f"📋 <b>Submission History (Last 7 Days)</b>\n<i>Page {offset//limit + 1}</i>\n{DIVIDER}\n\n"
+    text = f"{em('📋')} <b>Submission History (Last 7 Days)</b>\n<i>Page {offset//limit + 1}</i>\n{DIVIDER}\n\n"
     
     for sub in subs:
         sub_dict = dict(sub)
@@ -385,10 +430,10 @@ async def _send_payments(chat_id, context):
     if not pays:
         await context.bot.send_message(chat_id, "💰 *No payment history found.*", parse_mode="Markdown"); return
     total = sum(p["amount"] for p in pays)
-    text = f"💰 <b>Payment History</b>\n{DIVIDER}\n\n"
+    text = f"{em('💰')} <b>Payment History</b>\n{DIVIDER}\n\n"
     for pay in pays:
-        text += f"💵 <b>{pay['pay_id']}</b>\n   👤 {pay['full_name']}\n   💲 <b>{pay['amount']:,.0f} ৳</b> — {fmt_dt(pay['sent_at'])}\n\n"
-    text += f"{DIVIDER}\n💎 <b>Grand Total: {total:,.0f} ৳</b>"
+        text += f"{em('💵')} <b>{pay['pay_id']}</b>\n   👤 {pay['full_name']}\n   💲 <b>{pay['amount']:,.0f} ৳</b> — {fmt_dt(pay['sent_at'])}\n\n"
+    text += f"{DIVIDER}\n{em('💎')} <b>Grand Total: {total:,.0f} ৳</b>"
     kb = InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Back to Dashboard", callback_data="nav_back_dashboard")]])
     await context.bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=kb)
 
@@ -425,7 +470,7 @@ async def cb_paid_who(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for p in pays:
         safe_name = html.escape(str(p['full_name']))
         safe_pay_id = html.escape(str(p['pay_id']))
-        text += f"💵 <b>{safe_pay_id}</b> | {safe_name} | <b>{p['amount']:,.0f} ৳</b>\n📅 {fmt_dt(p['sent_at'])}\n\n"
+        text += f"{em('💵')} <b>{safe_pay_id}</b> | {safe_name} | <b>{p['amount']:,.0f} ৳</b>\n📅 {fmt_dt(p['sent_at'])}\n\n"
         kb_buttons.append([InlineKeyboardButton(f"👤 Detail: {p['full_name']}", callback_data=f"member_{p['user_id']}")])
         
     navigation_row = []
@@ -609,7 +654,7 @@ async def _finalize_payment(update, context: ContextTypes.DEFAULT_TYPE):
     fid = context.user_data.get("pay_file")
     fname = context.user_data.get("pay_filename", "receipt")
     pay_id = db.add_payment(uid, amount, note, fid)
-    user_text = f"〔 💰 <b>Payment Notification!</b> 〕\n{DIVIDER}\n\n🆔 ID: <code>{pay_id}</code>\n💵 Amount: <b>{amount:,.0f} ৳</b>\n"
+    user_text = f"〔 {em('💰')} <b>Payment Notification!</b> 〕\n{DIVIDER}\n\n🆔 ID: <code>{pay_id}</code>\n💵 Amount: <b>{amount:,.0f} ৳</b>\n"
     if note: user_text += f"📝 Details: _{note}_\n"
     user_text += f"📅 Date: {fmt_dt(datetime.now().isoformat())}\n\nThank you! 🙏"
     try:
@@ -645,7 +690,7 @@ async def cb_nav_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     kb = InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="bc_cancel")]])
     await q.message.reply_text(
-        f"📣 <b>Broadcast</b>\n{DIVIDER}\n\n"
+        f"{em('📣')} <b>Broadcast</b>\n{DIVIDER}\n\n"
         f"Please write the broadcast message you want to send to all members:\n\n"
         f"_Press Cancel button below to abort._",
         parse_mode="HTML",
@@ -667,7 +712,7 @@ async def do_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not users: await update.message.reply_text("👥 No members found."); return ConversationHandler.END
     proc = await update.message.reply_text("📣 _Broadcasting..._", parse_mode="Markdown")
     success, failed = 0, 0
-    broadcast_text = f"📣 <b>Matrix File Receiver</b>\n{DIVIDER}\n\n{msg}\n\n_{fmt_dt(datetime.now().isoformat())}_"
+    broadcast_text = f"{em('📣')} <b>Matrix File Receiver</b>\n{DIVIDER}\n\n{msg}\n\n_{fmt_dt(datetime.now().isoformat())}_"
     try:
         async with Bot(token=USER_BOT_TOKEN) as user_bot:
             for u in users:
@@ -812,13 +857,13 @@ async def cb_submission(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if action == "approve":
         db.update_submission_status(sub_id, "approved")
         user_msg = f"〔 🎉 *File Approved!* 〕\n{DIVIDER}\n\n🆔 ID: `{sub_id}`\n📄 `{sub_dict['file_name']}`\n✅ *Approved*\n\nThank you 🙏"
-        result_line = f"\n━━━━━━━━━━━━━━━━━━\n✅ <b>APPROVED</b> — {now}"
+        result_line = f"\n━━━━━━━━━━━━━━━━━━\n{em('✔️')} <b>APPROVED</b> — {now}"
         reply_markup = InlineKeyboardMarkup([[InlineKeyboardButton("Approved ✅", callback_data="nav_done")]])
         await q.answer("✅ Approved!")
     else:
         db.update_submission_status(sub_id, "declined")
         user_msg = f"〔 ❌ *File Declined!* 〕\n{DIVIDER}\n\n🆔 ID: `{sub_id}`\n📄 `{sub_dict['file_name']}`\n❌ *Declined*"
-        result_line = f"\n━━━━━━━━━━━━━━━━━━\n❌ <b>DECLINED</b> — {now}"
+        result_line = f"\n━━━━━━━━━━━━━━━━━━\n{em('❌')} <b>DECLINED</b> — {now}"
         reply_markup = InlineKeyboardMarkup([[InlineKeyboardButton("Declined ❌", callback_data="nav_done")]])
         await q.answer("❌ Declined!")
     try:
