@@ -628,7 +628,7 @@ async def _finalize_payment(update, context: ContextTypes.DEFAULT_TYPE):
 
 # ── Broadcast ─────────────────────────────────────────────────────────────────
 
-# Broadcast entry point from CallbackQuery
+# FIXED: Broadcast entry point from CallbackQuery
 async def cb_nav_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     if not is_admin(q.from_user.id):
@@ -796,15 +796,11 @@ async def cmd_testnotify(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # FIXED: Command handler to test Telegram Custom Premium Emoji rendering
 async def cmd_testemoji(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    text_1_empty = '<emoji id="6037182932370590949"></emoji> TEST 1 (Empty tag)'
     text_1_fallback = '<emoji id="6037182932370590949">💀</emoji> TEST 1 (With fallback inside)'
-    text_2_empty = '<tg-emoji emoji-id="6037182932370590949"></tg-emoji> TEST 2 (Empty tag)'
     text_2_fallback = '<tg-emoji emoji-id="6037182932370590949">💀</tg-emoji> TEST 2 (With fallback inside)'
     text_3 = '💀 TEST 3 (Plain Fallback)'
     tests = [
-        ("Method 1: Literal Empty <emoji>", text_1_empty, "HTML"),
         ("Method 1: Nested <emoji> Fallback", text_1_fallback, "HTML"),
-        ("Method 2: Literal Empty <tg-emoji>", text_2_empty, "HTML"),
         ("Method 2: Nested <tg-emoji> Fallback", text_2_fallback, "HTML"),
         ("Method 3: Plain Fallback", text_3, None)
     ]
@@ -840,7 +836,7 @@ async def cmd_payments_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_admin(update.effective_user.id): await _send_payments(update.message.chat_id, context)
 
 
-# FIXED: Reusable main menu reply buttons handler (ADDED to prevent NameError) ✅
+# FIXED: Reusable main menu reply buttons handler (DEFINED) ✅
 async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (update.message.text or "").strip()
     uid = update.effective_user.id
@@ -911,7 +907,7 @@ def create_admin_app():
     bc_conv = ConversationHandler(
         entry_points=[
             CommandHandler("broadcast", cmd_broadcast),
-            CallbackQueryHandler(cb_nav_broadcast, pattern=r"^nav_broadcast$"), # FIXED: Registered dashboard button in ConversationHandler ✅
+            CallbackQueryHandler(cb_nav_broadcast, pattern=r"^nav_broadcast$"), # Dashboard broadcast button registered in ConversationHandler ✅
         ],
         states={
             BROADCAST_TEXT: [
@@ -949,7 +945,7 @@ def create_admin_app():
     app.add_handler(CommandHandler("members", cmd_members_cmd))
     app.add_handler(CommandHandler("payments", cmd_payments_cmd))
     
-    # New debug testing commands registered here ✅
+    # Debug testing commands registered ✅
     app.add_handler(CommandHandler("testemoji", cmd_testemoji))
     app.add_handler(CommandHandler("debuginfo", cmd_debuginfo))
     
