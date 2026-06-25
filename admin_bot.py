@@ -239,7 +239,11 @@ async def _send_pending(chat_id, context):
         try: await context.bot.send_document(chat_id=chat_id, document=sub_dict["file_id"], caption=cap, parse_mode="HTML", reply_markup=kb)
         except Exception as e: logger.error(f"Doc send error: {e}")
 
-        # Show sub-menu detail page for a specific work (FIXED: Defined globally) ✅
+        # Task Conversation States (Overwriting and extending Part 1)
+ENTER_TASK_NAME, ENTER_START_TIME, ENTER_END_TIME = range(5, 8)
+EDIT_START_TIME, EDIT_END_TIME = range(8, 10)
+
+# ── Show sub-menu detail page for a specific work ──
 async def cb_work_manage(update: Update, context: ContextTypes.DEFAULT_TYPE):
     from datetime import datetime # Local safe import
     q = update.callback_query; await q.answer()
@@ -247,12 +251,14 @@ async def cb_work_manage(update: Update, context: ContextTypes.DEFAULT_TYPE):
     task = db.get_task_by_id(task_id)
     if not task: await q.message.reply_text("❌ Selected work not found."); return
 
+    task_dict = dict(task) # Row to Dict Conversion safely ✅
+
     def format_12h(time_str):
         try: return datetime.strptime(time_str, "%H:%M").strftime("%I:%M %p")
         except: return time_str
         
-    start_time = task.get('start_time', '00:00')
-    end_time = task.get('end_time', '23:59')
+    start_time = task_dict.get('start_time', '00:00')
+    end_time = task_dict.get('end_time', '23:59')
     
     if start_time == "00:00" and end_time == "23:59":
         sched_text = "🟢 <b>Open 24/7</b> (No limits)"
@@ -260,7 +266,7 @@ async def cb_work_manage(update: Update, context: ContextTypes.DEFAULT_TYPE):
         sched_text = f"{status_icon(start_time, end_time)} <b>{format_12h(start_time)} to {format_12h(end_time)}</b> (BDT)"
         
     text = (
-        f"📂 <b>Work Details: {task['task_name']}</b>\n{DIVIDER}\n\n"
+        f"📂 <b>Work Details: {task_dict['task_name']}</b>\n{DIVIDER}\n\n"
         f"🕒 <b>Allowed Submission Window:</b>\n"
         f"👉 {sched_text}\n\n"
         f"Select an administration action below:"
@@ -274,7 +280,7 @@ async def cb_work_manage(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ])
     await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
 
-# Disable/turn off schedule callback (FIXED: Defined globally) ✅
+# Disable/turn off schedule callback
 async def cb_work_disablesched(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     task_id = int(q.data.replace("work_disablesched_", ""))
@@ -461,6 +467,7 @@ async def cb_paid_who(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if nav: kb.append(nav)
     kb.append([InlineKeyboardButton("◀️ Back to Dashboard", callback_data="nav_back_dashboard")])
     await q.edit_message_text(text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
+
 
 # ── Payment Flow ──────────────────────────────────────────────────────────────
 
@@ -803,13 +810,14 @@ async def enter_edit_end_time(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     db.update_task_schedule(task_id, start_time, end_time)
     task = db.get_task_by_id(task_id)
+    task_dict = dict(task) # Convert to dictionary safely ✅
     
     def format_12h(time_str):
         try: return datetime.strptime(time_str, "%H:%M").strftime("%I:%M %p")
         except: return time_str
         
     await update.message.reply_text(
-        f"✅ Schedule updated successfully for **'{task['task_name']}'**!\n\n"
+        f"✅ Schedule updated successfully for **'{task_dict['task_name']}'**!\n\n"
         f"⏰ Allowed window: **{format_12h(start_time)} to {format_12h(end_time)}** (Bangladesh Time)",
         parse_mode="Markdown"
     )
