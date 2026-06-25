@@ -57,7 +57,7 @@ def get_badge(approved, total):
 user_states = {}
 
 
-# ── /start welcome message (Date Only - Time Excluded) ────────────────────────
+# ── /start welcome message (Date Only - Formatted Spacing & Bold Question) ──
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user   = update.effective_user
     is_new = db.get_user(user.id) is None
@@ -65,22 +65,22 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     db_user = db.get_user(user.id)
     
-    # BDT অনুযায়ী শুধুমাত্র আজকের তারিখ (দিন মাস বছর) বের করার জন্য লাইব্রেরি
+    # BDT অনুযায়ী দিন মাস বছর ফরম্যাট
     from datetime import datetime, timedelta, timezone
     bdt_tz = timezone(timedelta(hours=6))
     
     try:
         if db_user and db_user['registered_at']:
-            # সময় বাদ দিয়ে শুধুমাত্র তারিখ ফরম্যাট (যেমন: 25 Jun 2026) করা হচ্ছে
             joined_date = datetime.fromisoformat(db_user['registered_at']).strftime("%d %b %Y")
         else:
             joined_date = datetime.now(bdt_tz).strftime("%d %b %Y")
     except Exception:
         joined_date = datetime.now(bdt_tz).strftime("%d %b %Y")
 
+    # Welcome ও ID এর মাঝে ডাবল লাইনের স্পেস এবং শেষে রেডি টেক্সট বোল্ড করা হয়েছে ✅
     welcome_text = (
         f"💎 <b>Matrix File Receiver</b> 🤖\n"
-        f"Welcome, <b>{user.full_name}</b> 👋\n"
+        f"Welcome, <b>{user.full_name}</b> 👋\n\n"
         f"🆔 <b>ID:</b> <code>{user.id}</code>\n"
         f"📅 <b>Member Since:</b> {joined_date}\n\n"
         f"━━━━━━━━━━━━━━\n"
@@ -88,9 +88,15 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🤑 Withdraw Payments\n"
         f"🔔 Real-Time Notifications\n"
         f"🔒 Secure Processing\n"
-        f"━━━━━━━━━━━━━━\n"
-        f"🚀 🚀 Ready to get started?\n"
+        f"━━━━━━━━━━━━━━\n\n"
+        f"<b>🚀 Ready to get started?</b>\n"
         f"Choose an option from the menu below.👇"
+    )
+
+    await update.message.reply_text(
+        welcome_text,
+        parse_mode="HTML",
+        reply_markup=MENU,
     )
 
     await update.message.reply_text(
