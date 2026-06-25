@@ -4,10 +4,12 @@ from datetime import datetime
 from config import DB_PATH
 
 
+# FIXED: WAL Mode & 20s Timeout added to prevent SQLite locks and duplicate Telegram retries ✅
 def _conn():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    c = sqlite3.connect(DB_PATH, check_same_thread=False)
+    c = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=20) # 20s Timeout Added
     c.row_factory = sqlite3.Row
+    c.execute("PRAGMA journal_mode=WAL") # WAL mode enabled for concurrent reading/writing
     return c
 
 
@@ -99,10 +101,13 @@ def set_submissions_open(status: bool):
 
 # ── Tasks Management Helpers ──────────────────────────────────────────────────
 
-def add_task(task_name):
+def add_task(task_name, start_time="00:00", end_time="23:59"):
     db = _conn()
     try:
-        db.execute("INSERT INTO tasks (task_name, created_at) VALUES (?, ?)", (task_name, datetime.now().isoformat()))
+        db.execute(
+            "INSERT INTO tasks (task_name, start_time, end_time, created_at) VALUES (?, ?, ?, ?)", 
+            (task_name, start_time, end_time, datetime.now().isoformat())
+        )
         db.commit()
         success = True
     except sqlite3.IntegrityError:
