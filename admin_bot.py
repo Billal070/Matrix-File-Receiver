@@ -1,4 +1,4 @@
-import logging, os, io, html
+import logging, os, io, html, sys, telegram
 from datetime import datetime
 from telegram import Update, Bot, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ConversationHandler, filters, ContextTypes
@@ -103,7 +103,7 @@ def _build_dashboard_text(stats):
         f"  ✅ Approved: {pbar(stats['approved'],t)} <b>{stats['approved']}</b> ({pct(stats['approved'],t)}%)\n"
         f"  ⏳ Pending:  {pbar(stats['pending'],t)} <b>{stats['pending']}</b> ({pct(stats['pending'],t)}%)\n"
         f"  ❌ Declined: {pbar(stats['declined'],t)} <b>{stats['declined']}</b> ({pct(stats['declined'],t)}%)\n\n"
-        f"  💰 Total Paid: <b>{stats['total_paid']:,.0f} ৳</b>\n{DIVIDER}\n_Select any option_ 👇"
+        f"  {em('💰')} Total Paid: <b>{stats['total_paid']:,.0f} ৳</b>\n{DIVIDER}\n_Select any option_ 👇"
     )
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -782,7 +782,7 @@ async def cb_submission(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try: await q.edit_message_reply_markup(reply_markup=reply_markup)
         except Exception as ex: logger.error(f"Markup edit failed: {ex}")
 
-# ── Debug ─────────────────────────────────────────────────────────────────────
+# ── Debug / Emoji Test (FIXED: Official tg-emoji parsing test added) ────────
 async def cmd_testnotify(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id; await update.message.reply_text("🔍 Testing... wait.")
     is_match = str(uid) == str(ADMIN_TELEGRAM_ID)
@@ -791,8 +791,8 @@ async def cmd_testnotify(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Premium Emoji Rendering Test Line Added ✅
     await update.message.reply_text(
-        '💀 <b>Premium Emoji Render Test:</b>\n'
-        '<tg-emoji emoji-id="6037182932370590949">💀</tg-emoji> Matrix File Receiver',
+        '💎 <b>Premium Emoji Render Test:</b>\n'
+        '<tg-emoji emoji-id="5427168083074628963">💎</tg-emoji> Matrix File Receiver',
         parse_mode="HTML"
     )
     
@@ -808,49 +808,77 @@ async def cmd_testnotify(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"❌ Token error:\n<code>{e}</code>", parse_mode="HTML")
 
+
+# ── New /testemoji and /debuginfo Commands ───────────────────────────────────
+
+# FIXED: Command handler to test Telegram Custom Premium Emoji rendering ✅
+async def cmd_testemoji(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    logger.info(f"--- Starting Custom Emoji Test for Chat ID: {chat_id} ---")
+    
+    # Message 1: Using HTML <emoji> tag (Empty as requested)
+    text_1_empty = '<emoji id="6037182932370590949"></emoji> TEST 1 (Empty tag)'
+    # Message 1 Alternative: HTML <emoji> tag with fallback inside (Standard requirement)
+    text_1_fallback = '<emoji id="6037182932370590949">💀</emoji> TEST 1 (With fallback inside)'
+    
+    # Message 2: Using HTML <tg-emoji> tag (Empty as requested)
+    text_2_empty = '<tg-emoji emoji-id="6037182932370590949"></tg-emoji> TEST 2 (Empty tag)'
+    # Message 2 Alternative: HTML <tg-emoji> tag with fallback inside (Official documentation standard)
+    text_2_fallback = '<tg-emoji emoji-id="6037182932370590949">💀</tg-emoji> TEST 2 (With fallback inside)'
+    
+    # Message 3: Plain fallback emoji
+    text_3 = '💀 TEST 3 (Plain Fallback)'
+    
+    tests = [
+        ("Method 1: Literal Empty <emoji>", text_1_empty, "HTML"),
+        ("Method 1: Nested <emoji> Fallback", text_1_fallback, "HTML"),
+        ("Method 2: Literal Empty <tg-emoji>", text_2_empty, "HTML"),
+        ("Method 2: Nested <tg-emoji> Fallback", text_2_fallback, "HTML"),
+        ("Method 3: Plain Fallback", text_3, None)
+    ]
+    
+    await update.message.reply_text("🚀 <b>Starting Custom Emoji rendering tests...</b> Check server logs for response data.", parse_mode="HTML")
+    
+    for label, payload, parse_mode in tests:
+        logger.info(f"Executing {label}...")
+        logger.info(f"Payload text: {payload}")
+        try:
+            response = await context.bot.send_message(
+                chat_id=chat_id,
+                text=payload,
+                parse_mode=parse_mode
+            )
+            logger.info(f"SUCCESS! {label} - Telegram API Response: {response.to_dict()}")
+            await update.message.reply_text(f"✅ <b>{label} Succeeded</b>\nAPI Msg ID: <code>{response.message_id}</code>", parse_mode="HTML")
+        except Exception as e:
+            logger.error(f"FAILED to execute {label}! Exception: {e}", exc_info=True)
+            await update.message.reply_text(f"❌ <b>{label} Failed</b>\nError: <code>{html.escape(str(e))}</code>", parse_mode="HTML")
+            
+    logger.info("--- Custom Emoji Test Completed ---")
+
+
+# FIXED: Command handler to show environment and library version diagnostics ✅
+async def cmd_debuginfo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    ptb_version = telegram.__version__
+    python_version = sys.version
+    
+    info_text = (
+        f"⚙️ <b>System Debug Information</b>\n"
+        f"━━━━━━━━━━━━━━━━━━\n\n"
+        f"🐍 <b>Python Version:</b>\n<code>{html.escape(python_version)}</code>\n\n"
+        f"🤖 <b>python-telegram-bot Version:</b>\n<code>{ptb_version}</code>\n\n"
+        f"🌐 <b>Telegram Bot API Lib Info:</b>\n<code>ptb-asyncio-engine</code>\n\n"
+        f"📝 <b>Active Command Parse Mode:</b>\n<code>HTML</code>"
+    )
+    await update.message.reply_text(info_text, parse_mode="HTML")
+
+
 async def cmd_history_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_admin(update.effective_user.id): await _send_history_paginated(update.message.chat_id, context, offset=0)
 async def cmd_members_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_admin(update.effective_user.id): await _send_members(update.message.chat_id, context)
 async def cmd_payments_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_admin(update.effective_user.id): await _send_payments(update.message.chat_id, context)
-
-
-# Dispatcher handler for Admin reply keyboard buttons (All Settings toggling safe)
-async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = (update.message.text or "").strip()
-    uid = update.effective_user.id
-    if not is_admin(uid): return
-
-    if text == "📊 Dashboard":
-        await update.message.reply_text(
-            _build_dashboard_text(db.get_stats()),
-            parse_mode="HTML", # Changed to HTML
-            reply_markup=_dashboard_keyboard()
-        )
-    elif text == "📈 Analytics":
-        kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("📋 Submit History", callback_data="nav_history"), InlineKeyboardButton("⏳ Pending", callback_data="nav_pending")],
-            [InlineKeyboardButton("📊 Detailed Stats", callback_data="nav_stats")]
-        ])
-        await update.message.reply_text("〔 📈 <b>Analytics & Reports</b> 〕\n" + DIVIDER + "\n\nSelect an option to view submission analytics:", parse_mode="HTML", reply_markup=kb)
-    elif text == "💳 Payments":
-        kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("💸 Send Payment", callback_data="nav_sendpayment")],
-            [InlineKeyboardButton("📋 Pay History", callback_data="nav_payments")],
-            [InlineKeyboardButton("👥 Paid Members List", callback_data="nav_paidwho_0")]
-        ])
-        await update.message.reply_text("〔 💳 <b>Payment Management</b> 〕\n" + DIVIDER + "\n\nManage user payouts and transaction history:", parse_mode="HTML", reply_markup=kb)
-    elif text == "⚙️ Settings":
-        is_open = db.is_submissions_open()
-        status_btn = InlineKeyboardButton("🔒 Close Submissions" if is_open else "🔓 Open Submissions", callback_data="nav_toggle_subs_settings")
-        kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🛠️ Manage Works", callback_data="nav_manage_tasks")],
-            [InlineKeyboardButton("👥 Members", callback_data="nav_members")],
-            [status_btn]
-        ])
-        await update.message.reply_text("〔 ⚙️ <b>Settings & Configuration</b> 〕\n" + DIVIDER + "\n\nAdjust your bot's operation parameters:", parse_mode="HTML", reply_markup=kb)
-
 
 # ── App Factory ───────────────────────────────────────────────────────────────
 def create_admin_app():
@@ -874,65 +902,4 @@ def create_admin_app():
                 MessageHandler(filters.TEXT & ~filters.COMMAND, enter_note)
             ],
             ATTACH_FILE: [
-                CommandHandler("skip", cmd_skip_file),
-                CallbackQueryHandler(cb_skip_file_callback, pattern=r"^file_skip$"),  
-                CallbackQueryHandler(cb_cancel_pay_callback, pattern=r"^pay_cancel$"), 
-                MessageHandler(filters.Document.ALL | filters.PHOTO, attach_file)
-            ],
-        },
-        fallbacks=[CommandHandler("cancel", cmd_cancel_pay), CommandHandler("start", cmd_start)],
-        per_message=False, allow_reentry=True
-    )
-
-    bc_conv = ConversationHandler(
-        entry_points=[
-            CommandHandler("broadcast", cmd_broadcast),
-            CallbackQueryHandler(cb_nav_broadcast, pattern=r"^nav_broadcast$"), # Inline dashboard broadcast button registered
-        ],
-        states={
-            BROADCAST_TEXT: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, do_broadcast),
-                CallbackQueryHandler(cb_cancel_broadcast, pattern=r"^bc_cancel$") 
-            ]
-        },
-        fallbacks=[CommandHandler("cancel", cancel_broadcast)],
-        per_message=False, allow_reentry=True
-    )
-
-    # Task management conversation handler
-    task_conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(cb_add_task_init, pattern=r"^add_task_init$")],
-        states={
-            ENTER_TASK_NAME: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, enter_task_name),
-                CallbackQueryHandler(cb_cancel_task_callback, pattern=r"^task_cancel$") 
-            ],
-        },
-        fallbacks=[CommandHandler("cancel", cmd_cancel_task)],
-        per_message=False, allow_reentry=True
-    )
-
-    app.add_handler(pay_conv)
-    app.add_handler(bc_conv)
-    app.add_handler(task_conv) 
-    
-    app.add_handler(CommandHandler("myid", cmd_myid))
-    app.add_handler(CommandHandler("testnotify", cmd_testnotify))
-    app.add_handler(CommandHandler("start", cmd_start))
-    app.add_handler(CommandHandler("stats", cmd_stats))
-    app.add_handler(CommandHandler("pending", cmd_pending))
-    app.add_handler(CommandHandler("history", cmd_history_cmd))
-    app.add_handler(CommandHandler("members", cmd_members_cmd))
-    app.add_handler(CommandHandler("payments", cmd_payments_cmd))
-    
-    # Callback query handlers
-    app.add_handler(CallbackQueryHandler(cb_nav, pattern=r"^nav_"))
-    app.add_handler(CallbackQueryHandler(cb_submission, pattern=r"^(approve|decline)_"))
-    app.add_handler(CallbackQueryHandler(cb_member_detail, pattern=r"^member_\d+$"))
-    app.add_handler(CallbackQueryHandler(cb_delete_task, pattern=r"^deltask_\d+$")) 
-    app.add_handler(CallbackQueryHandler(cb_paid_who, pattern=r"^nav_paidwho_")) # Paid members pagination handler
-    app.add_handler(CallbackQueryHandler(cb_subhist_pagination, pattern=r"^nav_subhist_")) # Submission history pagination handler
-    
-    # Text buttons dispatcher registered at the end
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_admin_text))
-    return app
+                CommandHandler("skip", cmd_skip_f
