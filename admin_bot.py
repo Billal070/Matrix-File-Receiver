@@ -12,10 +12,15 @@ EDIT_START_TIME, EDIT_END_TIME = range(8, 10) # Task time editing states
 BROADCAST_TEXT = 10
 STATUS_EMOJI = {"pending": "⏳", "approved": "✅", "declined": "❌"}
 
-ADMIN_MENU = ReplyKeyboardMarkup([
-    [KeyboardButton("📊 Dashboard"), KeyboardButton("📈 Analytics")],
-    [KeyboardButton("💳 Payments"), KeyboardButton("⚙️ Settings")]
-], resize_keyboard=True, is_persistent=True)
+# ── 4 Primary Reply Keyboard Buttons for Admin ───────────────────────────────
+ADMIN_MENU = ReplyKeyboardMarkup(
+    [
+        [KeyboardButton("📊 Dashboard"), KeyboardButton("📈 Analytics")],
+        [KeyboardButton("💳 Payments"), KeyboardButton("⚙️ Settings")]
+    ],
+    resize_keyboard=True,
+    is_persistent=True,
+)
 
 # Smart Time Parser supporting: 5:00 PM, 5 PM, 05:00 PM, 17:00, 17 etc.
 def parse_time_input(text):
@@ -58,37 +63,44 @@ def pbar(val, total, w=8):
 
 def pct(val, total): return round(val / total * 100) if total else 0
 
+
+# Admin Menu Keyboard with "Manage Works" option
 def _dashboard_keyboard():
     is_open = db.is_submissions_open()
     status_btn = InlineKeyboardButton("🔒 Close Submissions" if is_open else "🔓 Open Submissions", callback_data="nav_toggle_subs")
+    
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("⏳ Pending", callback_data="nav_pending"), InlineKeyboardButton("📋 History", callback_data="nav_history")],
         [InlineKeyboardButton("👥 Members", callback_data="nav_members"), InlineKeyboardButton("💰 Payments", callback_data="nav_payments")],
         [InlineKeyboardButton("📊 Stats", callback_data="nav_stats"), InlineKeyboardButton("📣 Broadcast", callback_data="nav_broadcast")],
         [InlineKeyboardButton("💸 Send Payment", callback_data="nav_sendpayment")],
-        [InlineKeyboardButton("🛠️ Manage Works", callback_data="nav_manage_tasks")],
+        [InlineKeyboardButton("🛠️ Manage Works", callback_data="nav_manage_tasks")], # Manage Tasks Button
         [status_btn]
     ])
 
+
 def _build_dashboard_text(stats):
-    alert = f"\n🔔 *{stats['pending']} Pending!*" if stats["pending"] else ""
+    alert = f"\n{em('🔔')} <b>{stats['pending']} Pending!</b>" if stats["pending"] else ""
     t = stats["total_subs"]
     is_open = db.is_submissions_open()
     status_text = "🟢 OPEN" if is_open else "🔴 CLOSED"
+    
     return (
-        f"〔 👨‍💼 *Admin Panel* 〕\n🔷 {BOT_NAME}\n{DIVIDER}{alert}\n\n📂 Submission Window: *{status_text}*\n\n"
-        f"📊 *Stats:*\n  👥 Members:      *{stats['total_users']}* users\n  📁 Submissions:  *{t}* files\n\n"
-        f"  ✅ Approved: {pbar(stats['approved'],t)} *{stats['approved']}* ({pct(stats['approved'],t)}%)\n"
-        f"  ⏳ Pending:  {pbar(stats['pending'],t)} *{stats['pending']}* ({pct(stats['pending'],t)}%)\n"
-        f"  ❌ Declined: {pbar(stats['declined'],t)} *{stats['declined']}* ({pct(stats['declined'],t)}%)\n\n"
-        f"  💰 Total Paid: *{stats['total_paid']:,.0f} ৳*\n{DIVIDER}\n_Select any option_ 👇"
+        f"〔 👨‍💼 <b>Admin Panel</b> 〕\n🔷 {BOT_NAME}\n{DIVIDER}{alert}\n\n"
+        f"📂 Submission Window: <b>{status_text}</b>\n\n"
+        f"{em('📊')} <b>Stats:</b>\n  👥 Members:      <b>{stats['total_users']}</b> users\n  📁 Submissions:  <b>{t}</b> files\n\n"
+        f"  ✅ Approved: {pbar(stats['approved'],t)} <b>{stats['approved']}</b> ({pct(stats['approved'],t)}%)\n"
+        f"  ⏳ Pending:  {pbar(stats['pending'],t)} <b>{stats['pending']}</b> ({pct(stats['pending'],t)}%)\n"
+        f"  ❌ Declined: {pbar(stats['declined'],t)} <b>{stats['declined']}</b> ({pct(stats['declined'],t)}%)\n\n"
+        f"  {em('💰')} Total Paid: <b>{stats['total_paid']:,.0f} ৳</b>\n{DIVIDER}\n_Select any option_ 👇"
     )
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
-        await update.message.reply_text(f"⛔ *Unauthorized!*\n\nID: `{update.effective_user.id}`", parse_mode="Markdown")
+        await update.message.reply_text(f"{em('⛔️')} <b>Unauthorized!</b>\n\nID: <code>{update.effective_user.id}</code>", parse_mode="HTML")
         return
-    await update.message.reply_text(_build_dashboard_text(db.get_stats()), parse_mode="Markdown", reply_markup=_dashboard_keyboard())
+    await update.message.reply_text(_build_dashboard_text(db.get_stats()), parse_mode="HTML", reply_markup=ADMIN_MENU)
+
 
 async def cb_nav(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
@@ -100,24 +112,40 @@ async def cb_nav(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif q.data == "nav_members": await _send_members(q.message.chat_id, context)
     elif q.data == "nav_payments": await _send_payments(q.message.chat_id, context)
     elif q.data == "nav_stats": await _send_stats(q.message.chat_id, context)
-    elif q.data == "nav_done": pass
-    elif q.data == "nav_manage_tasks" or q.data == "nav_back_tasks": await _show_manage_tasks_menu(q.message.chat_id, context)
-    elif q.data == "nav_back_dashboard": await q.edit_message_text(_build_dashboard_text(db.get_stats()), parse_mode="HTML", reply_markup=_dashboard_keyboard())
-    elif q.data == "nav_toggle_subs":
-        ns = not db.is_submissions_open()
-        db.set_submissions_open(ns)
-        await q.answer(f"📂 Submissions now {'OPENED' if ns else 'CLOSED'}!", show_alert=True)
-        await q.edit_message_text(_build_dashboard_text(db.get_stats()), parse_mode="HTML", reply_markup=_dashboard_keyboard())
-    elif q.data == "nav_toggle_subs_settings":
-        ns = not db.is_submissions_open()
-        db.set_submissions_open(ns)
-        await q.answer(f"📂 Submissions now {'OPENED' if ns else 'CLOSED'}!", show_alert=True)
-        status_btn = InlineKeyboardButton("🔒 Close Submissions" if ns else "🔓 Open Submissions", callback_data="nav_toggle_subs_settings")
-        await q.edit_message_text("〔 ⚙️ <b>Settings & Configuration</b> 〕\n" + DIVIDER + "\n\nAdjust your bot's operation parameters:", parse_mode="HTML", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🛠️ Manage Works", callback_data="nav_manage_tasks")],[InlineKeyboardButton("👥 Members", callback_data="nav_members")],[status_btn],[InlineKeyboardButton("◀️ Back to Dashboard", callback_data="nav_back_dashboard")]]))
+    elif q.data == "nav_done":
+        pass
+    
+    # ── Manage Tasks View Handler ──
+    elif q.data == "nav_manage_tasks" or q.data == "nav_back_tasks":
+        await _show_manage_tasks_menu(q.message.chat_id, context)
+        
+    elif q.data == "nav_back_dashboard":
+        stats = db.get_stats()
+        await q.edit_message_text(_build_dashboard_text(stats), parse_mode="HTML", reply_markup=_dashboard_keyboard())
 
+    # Submissions settings page toggle (Returns back to settings page)
+    elif q.data == "nav_toggle_subs_settings":
+        current_status = db.is_submissions_open()
+        new_status = not current_status
+        db.set_submissions_open(new_status)
+        
+        status_word = "OPENED" if new_status else "CLOSED"
+        await q.answer(f"📂 Submissions are now {status_word}!", show_alert=True)
+        
+        status_btn = InlineKeyboardButton("🔒 Close Submissions" if new_status else "🔓 Open Submissions", callback_data="nav_toggle_subs_settings")
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🛠️ Manage Works", callback_data="nav_manage_tasks")],
+            [InlineKeyboardButton("👥 Members", callback_data="nav_members")],
+            [status_btn],
+            [InlineKeyboardButton("◀️ Back to Dashboard", callback_data="nav_back_dashboard")]
+        ])
+        await q.edit_message_text("〔 ⚙️ <b>Settings & Configuration</b> 〕\n" + DIVIDER + "\n\nAdjust your bot's operation parameters:", parse_mode="HTML", reply_markup=kb)
+
+
+# Manage Tasks Menu Helper (OperationalError Removed)
 async def _show_manage_tasks_menu(chat_id, context):
     db_conn = db._conn()
-    rows = db_conn.execute("SELECT id, task_name, start_time, end_time FROM tasks").fetchall()
+    unique_tasks_rows = db_conn.execute("SELECT id, task_name, start_time, end_time FROM tasks").fetchall()
     db_conn.close()
     
     def format_12h(time_str):
@@ -125,84 +153,59 @@ async def _show_manage_tasks_menu(chat_id, context):
         except: return time_str
         
     text = f"⚙️ <b>Manage Work Types</b>\n{DIVIDER}\n\n"
-    if not rows: text += "⚠️ No custom work types set! Click '+ Add New Work' below to create one."
+    if not unique_tasks_rows: text += "⚠️ No custom work types set! Click '+ Add New Work' below to create one."
     else:
         text += f"📌 <b>Current Active Works:</b>\n"
-        for i, t in enumerate(rows, 1):
+        for i, t in enumerate(unique_tasks_rows, 1):
             s_time = "Always Open" if t['start_time'] == "00:00" and t['end_time'] == "23:59" else f"{format_12h(t['start_time'])} - {format_12h(t['end_time'])}"
             text += f"   {i}. <b>{t['task_name']}</b> ({status_icon(t['start_time'], t['end_time'])} <i>{s_time}</i>)\n"
             
     kb = []
-    for t in rows:
+    for t in unique_tasks_rows:
         kb.append([InlineKeyboardButton(f"📄 {t['task_name']}", callback_data=f"work_manage_{t['id']}")])
     kb.append([InlineKeyboardButton("➕ Add New Work", callback_data="add_task_init")])
     kb.append([InlineKeyboardButton("◀️ Back to Dashboard", callback_data="nav_back_dashboard")])
     await context.bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb))
 
-# ── Show sub-menu detail page for a specific work ──
-async def cb_work_manage(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    q = update.callback_query; await q.answer()
-    task_id = int(q.data.replace("work_manage_", ""))
-    task = db.get_task_by_id(task_id)
-    if not task: await q.message.reply_text("❌ Selected work not found."); return
 
-    def format_12h(time_str):
-        try: return datetime.strptime(time_str, "%H:%M").strftime("%I:%M %p")
-        except: return time_str
-        
-    start_time = task.get('start_time', '00:00')
-    end_time = task.get('end_time', '23:59')
-    
-    if start_time == "00:00" and end_time == "23:59":
-        sched_text = "🟢 <b>Open 24/7</b> (No limits)"
-    else:
-        sched_text = f"{status_icon(start_time, end_time)} <b>{format_12h(start_time)} to {format_12h(end_time)}</b> (BDT)"
-        
-    text = (
-        f"📂 <b>Work Details: {task['task_name']}</b>\n{DIVIDER}\n\n"
-        f"🕒 <b>Allowed Submission Window:</b>\n"
-        f"👉 {sched_text}\n\n"
-        f"Select an administration action below:"
-    )
-    
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("⏰ Set Submission Schedule", callback_data=f"work_setsched_{task_id}")],
-        [InlineKeyboardButton("🔓 Disable Time (Open 24/7)", callback_data=f"work_disablesched_{task_id}")],
-        [InlineKeyboardButton("🗑️ Delete Work Type", callback_data=f"deltask_{task_id}")],
-        [InlineKeyboardButton("◀️ Back to Works List", callback_data="nav_manage_tasks")]
-    ])
-    await q.edit_message_text(text, parse_mode="HTML", reply_markup=kb)
-
-# Disable/turn off schedule callback
-async def cb_work_disablesched(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# Delete Task Callback (FIXED: Left aligned to Module level to prevent NameError) ✅
+async def cb_delete_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
-    task_id = int(q.data.replace("work_disablesched_", ""))
-    db.update_task_schedule(task_id, "00:00", "23:59")
-    await q.answer("🔓 Time restrictions disabled (Open 24/7)!", show_alert=True)
+    if not is_admin(q.from_user.id): await q.answer("⛔"); return
+    await q.answer()
+
+    task_id = int(q.data.replace("deltask_", ""))
+    task = db.get_task_by_id(task_id)
+    if task:
+        db.delete_task(task_id)
+        await q.message.reply_text(f"🗑️ Work type **'{task['task_name']}'** has been deleted!", parse_mode="Markdown")
     
-    # Redirect back to work detail page
-    q.data = f"work_manage_{task_id}"
-    await cb_work_manage(update, context)
+    # Refresh menu
+    await _show_manage_tasks_menu(q.message.chat_id, context)
+
 
 async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_admin(update.effective_user.id): await _send_stats(update.message.chat_id, context)
 
+# Back to dashboard button added
 async def _send_stats(chat_id, context):
     s = db.get_stats()
     t = s["total_subs"]
     text = (
-        f"📊 <b>Detailed Statistics</b>\n{DIVIDER}\n\n👥 <b>Members:</b> <b>{s['total_users']}</b> active\n\n"
-        f"📁 <b>Submissions:</b> <b>{t}</b>\n"
-        f"   ✅ Approved: <b>{s['approved']}</b>  {pbar(s['approved'],t)} {pct(s['approved'],t)}%\n"
-        f"   ⏳ Pending:  <b>{s['pending']}</b>  {pbar(s['pending'],t)} {pct(s['pending'],t)}%\n"
-        f"   ❌ Declined: <b>{s['declined']}</b>  {pbar(s['declined'],t)} {pct(s['declined'],t)}%\n\n"
-        f"💰 <b>Payments:</b> <b>{s['total_payments']}</b> times\n   Total Paid: <b>{s['total_paid']:,.0f} ৳</b>\n\n{DIVIDER}"
+        f"📊 *Detailed Statistics*\n{DIVIDER}\n\n👥 *Members:* *{s['total_users']}* active\n\n"
+        f"📁 *Submissions:* *{t}*\n"
+        f"   ✅ Approved: *{s['approved']}*  {pbar(s['approved'],t)} {pct(s['approved'],t)}%\n"
+        f"   ⏳ Pending:  *{s['pending']}*  {pbar(s['pending'],t)} {pct(s['pending'],t)}%\n"
+        f"   ❌ Declined: *{s['declined']}*  {pbar(s['declined'],t)} {pct(s['declined'],t)}%\n\n"
+        f"💰 *Payments:* *{s['total_payments']}* times\n   Total Paid: *{s['total_paid']:,.0f} ৳*\n\n{DIVIDER}"
     )
-    await context.bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Back to Dashboard", callback_data="nav_back_dashboard")]]))
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Back to Dashboard", callback_data="nav_back_dashboard")]])
+    await context.bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=kb)
 
 async def cmd_pending(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_admin(update.effective_user.id): await _send_pending(update.message.chat_id, context)
 
+# sqlite3.Row object get method bypass
 async def _send_pending(chat_id, context):
     subs = db.get_pending_submissions()
     if not subs:
@@ -212,6 +215,7 @@ async def _send_pending(chat_id, context):
         sub_dict = dict(sub) # Row to Dict Conversion 
         kb = InlineKeyboardMarkup([[InlineKeyboardButton("✅  Approve", callback_data=f"approve_{sub_dict['sub_id']}"), InlineKeyboardButton("❌  Decline", callback_data=f"decline_{sub_dict['sub_id']}")]])
         
+        # HTML characters escaping to ensure robustness
         safe_sub_id = html.escape(str(sub_dict['sub_id']))
         safe_task = html.escape(str(sub_dict.get('task_name', 'General')))
         safe_name = html.escape(str(sub_dict['full_name']))
@@ -231,7 +235,7 @@ async def _send_pending(chat_id, context):
         try: await context.bot.send_document(chat_id=chat_id, document=sub_dict["file_id"], caption=cap, parse_mode="HTML", reply_markup=kb)
         except Exception as e: logger.error(f"Doc send error: {e}")
 
-        # Define Task conversation states (overwriting Part 1)
+        # Task Conversation States (Overwriting and extending Part 1)
 ENTER_TASK_NAME, ENTER_START_TIME, ENTER_END_TIME = range(5, 8)
 EDIT_START_TIME, EDIT_END_TIME = range(8, 10)
 
@@ -951,7 +955,7 @@ def create_admin_app():
         per_message=False, allow_reentry=True
     )
 
-    # NEW: Task editing schedule conversation handler (With Smart BDT Time validation) ✅
+    # Task editing schedule conversation handler (With Smart BDT Time validation)
     sched_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(cb_work_setsched_init, pattern=r"^work_setsched_\d+$")],
         states={
@@ -971,7 +975,7 @@ def create_admin_app():
     app.add_handler(pay_conv)
     app.add_handler(bc_conv)
     app.add_handler(task_conv) 
-    app.add_handler(sched_conv) # Task editing registered ✅
+    app.add_handler(sched_conv) # Task editing registered
     
     app.add_handler(CommandHandler("myid", cmd_myid))
     app.add_handler(CommandHandler("testnotify", cmd_testnotify))
@@ -987,8 +991,8 @@ def create_admin_app():
     app.add_handler(CallbackQueryHandler(cb_submission, pattern=r"^(approve|decline)_"))
     app.add_handler(CallbackQueryHandler(cb_member_detail, pattern=r"^member_\d+$"))
     app.add_handler(CallbackQueryHandler(cb_delete_task, pattern=r"^deltask_\d+$")) 
-    app.add_handler(CallbackQueryHandler(cb_work_manage, pattern=r"^work_manage_\d+$")) # Work sub-menu callback ✅
-    app.add_handler(CallbackQueryHandler(cb_work_disablesched, pattern=r"^work_disablesched_\d+$")) # Disable schedule callback ✅
+    app.add_handler(CallbackQueryHandler(cb_work_manage, pattern=r"^work_manage_\d+$")) # Work sub-menu callback
+    app.add_handler(CallbackQueryHandler(cb_work_disablesched, pattern=r"^work_disablesched_\d+$")) # Disable schedule callback
     app.add_handler(CallbackQueryHandler(cb_paid_who, pattern=r"^nav_paidwho_")) 
     app.add_handler(CallbackQueryHandler(cb_subhist_pagination, pattern=r"^nav_subhist_")) 
     
