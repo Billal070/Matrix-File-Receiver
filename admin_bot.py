@@ -21,12 +21,45 @@ ADMIN_MENU = ReplyKeyboardMarkup(
     is_persistent=True,
 )
 
+# ── Dynamic Premium Emojis Mapping ───────────────────────────────────────────
+CUSTOM_EMOJIS = {
+    "💎": '<tg-emoji emoji-id="5427168083074628963">💎</tg-emoji>',
+    "📊": '<tg-emoji emoji-id="5231200819986047254">📊</tg-emoji>',
+    "💵": '<tg-emoji emoji-id="5409048419211682843">💵</tg-emoji>',
+    "❓": '<tg-emoji emoji-id="5436113877181941026">❓</tg-emoji>',
+    "✔️": '<tg-emoji emoji-id="5206607081334906820">✔️</tg-emoji>',
+    "💬": '<tg-emoji emoji-id="5443038326535759644">💬</tg-emoji>',
+    "❌": '<tg-emoji emoji-id="5210952531676504517">❌</tg-emoji>',
+    "💰": '<tg-emoji emoji-id="6235459831302460476">💰</tg-emoji>',
+    "🔜": '<tg-emoji emoji-id="5440621591387980068">🔜</tg-emoji>',
+    "⚠️": '<tg-emoji emoji-id="5447644880824181073">⚠️</tg-emoji>',
+    "🌐": '<tg-emoji emoji-id="5447410659077661506">🌐</tg-emoji>',
+    "⛔️": '<tg-emoji emoji-id="5260293700088511294">⛔️</tg-emoji>',
+    "🔔": '<tg-emoji emoji-id="5458603043203327669">🔔</tg-emoji>',
+    "✉️": '<tg-emoji emoji-id="5253742260054409879">✉️</tg-emoji>',
+    "🔒": '<tg-emoji emoji-id="5296369303661067030">🔒</tg-emoji>',
+    "⚙️": '<tg-emoji emoji-id="5895577117592128901">⚙️</tg-emoji>',
+    "🤔": '<tg-emoji emoji-id="5210729536974503652">🤔</tg-emoji>',
+    "on": '<tg-emoji emoji-id="5210881166499921911">🔓</tg-emoji>',
+    "off": '<tg-emoji emoji-id="5208840468623801290">🔒</tg-emoji>',
+    "🗓": '<tg-emoji emoji-id="5413879192267805083">🗓</tg-emoji>',
+    "⭐️": '<tg-emoji emoji-id="5438496463044752972">⭐️</tg-emoji>',
+    "👀": '<tg-emoji emoji-id="5210956306952758910">👀</tg-emoji>',
+    "⚡️": '<tg-emoji emoji-id="5456140674028019486">⚡️</tg-emoji>',
+    "📌": '<tg-emoji emoji-id="5397782960512444700">📌</tg-emoji>',
+    "🖥": '<tg-emoji emoji-id="5282843764451195532">🖥</tg-emoji>',
+}
+
+def em(key):
+    return CUSTOM_EMOJIS.get(key, key)
+
+
 def is_admin(uid):
     try: return int(uid) == int(ADMIN_TELEGRAM_ID)
     except: return str(uid) == str(ADMIN_TELEGRAM_ID)
 
 async def cmd_myid(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(f"🪪 *Telegram ID:*\n`{update.effective_user.id}`\n\n_Railway variable: ADMIN_TELEGRAM_ID_", parse_mode="Markdown")
+    await update.message.reply_text(f"{em('📌')} <b>Telegram ID:</b>\n<code>{update.effective_user.id}</code>\n\n_Railway variable: ADMIN_TELEGRAM_ID_", parse_mode="HTML")
 
 def fmt_dt(s):
     from datetime import datetime
@@ -58,30 +91,26 @@ def _dashboard_keyboard():
 
 
 def _build_dashboard_text(stats):
-    alert = f"\n🔔 *{stats['pending']} Pending!*" if stats["pending"] else ""
+    alert = f"\n{em('🔔')} <b>{stats['pending']} Pending!</b>" if stats["pending"] else ""
     t = stats["total_subs"]
     is_open = db.is_submissions_open()
     status_text = "🟢 OPEN" if is_open else "🔴 CLOSED"
     
     return (
-        f"〔 👨‍💼 *Admin Panel* 〕\n🔷 {BOT_NAME}\n{DIVIDER}{alert}\n\n"
-        f"📂 Submission Window: *{status_text}*\n\n"
-        f"📊 *Stats:*\n  👥 Members:      *{stats['total_users']}* users\n  📁 Submissions:  *{t}* files\n\n"
-        f"  ✅ Approved: {pbar(stats['approved'],t)} *{stats['approved']}* ({pct(stats['approved'],t)}%)\n"
-        f"  ⏳ Pending:  {pbar(stats['pending'],t)} *{stats['pending']}* ({pct(stats['pending'],t)}%)\n"
-        f"  ❌ Declined: {pbar(stats['declined'],t)} *{stats['declined']}* ({pct(stats['declined'],t)}%)\n\n"
-        f"  💰 Total Paid: *{stats['total_paid']:,.0f} ৳*\n{DIVIDER}\n_Select any option_ 👇"
+        f"〔 👨‍💼 <b>Admin Panel</b> 〕\n🔷 {BOT_NAME}\n{DIVIDER}{alert}\n\n"
+        f"📂 Submission Window: <b>{status_text}</b>\n\n"
+        f"{em('📊')} <b>Stats:</b>\n  👥 Members:      <b>{stats['total_users']}</b> users\n  📁 Submissions:  <b>{t}</b> files\n\n"
+        f"  ✅ Approved: {pbar(stats['approved'],t)} <b>{stats['approved']}</b> ({pct(stats['approved'],t)}%)\n"
+        f"  ⏳ Pending:  {pbar(stats['pending'],t)} <b>{stats['pending']}</b> ({pct(stats['pending'],t)}%)\n"
+        f"  ❌ Declined: {pbar(stats['declined'],t)} <b>{stats['declined']}</b> ({pct(stats['declined'],t)}%)\n\n"
+        f"  {em('💰')} Total Paid: <b>{stats['total_paid']:,.0f} ৳</b>\n{DIVIDER}\n_Select any option_ 👇"
     )
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
-        await update.message.reply_text(f"⛔ *Unauthorized!*\n\nID: `{update.effective_user.id}`", parse_mode="Markdown")
+        await update.message.reply_text(f"{em('⛔️')} <b>Unauthorized!</b>\n\nID: <code>{update.effective_user.id}</code>", parse_mode="HTML")
         return
-    await update.message.reply_text(
-        _build_dashboard_text(db.get_stats()), 
-        parse_mode="Markdown", 
-        reply_markup=ADMIN_MENU # Loads primary Reply keyboard
-    )
+    await update.message.reply_text(_build_dashboard_text(db.get_stats()), parse_mode="HTML", reply_markup=ADMIN_MENU)
 
 
 async def cb_nav(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -90,11 +119,7 @@ async def cb_nav(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.answer("⛔ Unauthorized", show_alert=True); return
     await q.answer()
     if q.data == "nav_pending": await _send_pending(q.message.chat_id, context)
-    
-    # ── History is now handled by the paginated 7-days HTML function ──
-    elif q.data == "nav_history": 
-        await _send_history_paginated(q.message.chat_id, context, offset=0, edit=True, q=q)
-        
+    elif q.data == "nav_history": await _send_history_paginated(q.message.chat_id, context, offset=0, edit=True, q=q)
     elif q.data == "nav_members": await _send_members(q.message.chat_id, context)
     elif q.data == "nav_payments": await _send_payments(q.message.chat_id, context)
     elif q.data == "nav_stats": await _send_stats(q.message.chat_id, context)
@@ -107,7 +132,7 @@ async def cb_nav(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     elif q.data == "nav_back_dashboard":
         stats = db.get_stats()
-        await q.edit_message_text(_build_dashboard_text(stats), parse_mode="Markdown", reply_markup=_dashboard_keyboard())
+        await q.edit_message_text(_build_dashboard_text(stats), parse_mode="HTML", reply_markup=_dashboard_keyboard())
 
     # Submissions settings page toggle (Returns back to settings page)
     elif q.data == "nav_toggle_subs_settings":
@@ -125,7 +150,7 @@ async def cb_nav(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [status_btn],
             [InlineKeyboardButton("◀️ Back to Dashboard", callback_data="nav_back_dashboard")]
         ])
-        await q.edit_message_text("〔 ⚙️ *Settings & Configuration* 〕\n" + DIVIDER + "\n\nAdjust your bot's operation parameters:", parse_mode="Markdown", reply_markup=kb)
+        await q.edit_message_text("〔 ⚙️ <b>Settings & Configuration</b> 〕\n" + DIVIDER + "\n\nAdjust your bot's operation parameters:", parse_mode="HTML", reply_markup=kb)
 
 
 # Manage Tasks Menu Helper (OperationalError Removed)
@@ -134,13 +159,13 @@ async def _show_manage_tasks_menu(chat_id, context):
     unique_tasks_rows = db_conn.execute("SELECT id, task_name FROM tasks").fetchall()
     db_conn.close()
 
-    text = f"🛠️ *Manage Work Types*\n{DIVIDER}\n\n"
+    text = f"{em('⚙️')} <b>Manage Work Types</b>\n{DIVIDER}\n\n"
     if not unique_tasks_rows:
         text += "⚠️ No custom work types set. Users can't submit files right now!\n\n_Click '+ Add New Work' button below to create one._"
     else:
-        text += "📂 *Current Active Works:*\n"
+        text += f"{em('📌')} <b>Current Active Works:</b>\n"
         for i, t in enumerate(unique_tasks_rows, 1):
-            text += f"   {i}. **{t['task_name']}**\n"
+            text += f"   {i}. <b>{t['task_name']}</b>\n"
         text += "\n_Click trash icon next to a work below to delete it._"
 
     kb_buttons = []
@@ -152,7 +177,7 @@ async def _show_manage_tasks_menu(chat_id, context):
     kb_buttons.append([InlineKeyboardButton("➕ Add New Work", callback_data="add_task_init")])
     kb_buttons.append([InlineKeyboardButton("◀️ Back to Dashboard", callback_data="nav_back_dashboard")])
 
-    await context.bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(kb_buttons))
+    await context.bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(kb_buttons))
 
 
 # Delete Task Callback
@@ -179,25 +204,25 @@ async def _send_stats(chat_id, context):
     s = db.get_stats()
     t = s["total_subs"]
     text = (
-        f"📊 *Detailed Statistics*\n{DIVIDER}\n\n👥 *Members:* *{s['total_users']}* active\n\n"
-        f"📁 *Submissions:* *{t}*\n"
-        f"   ✅ Approved: *{s['approved']}*  {pbar(s['approved'],t)} {pct(s['approved'],t)}%\n"
-        f"   ⏳ Pending:  *{s['pending']}*  {pbar(s['pending'],t)} {pct(s['pending'],t)}%\n"
-        f"   ❌ Declined: *{s['declined']}*  {pbar(s['declined'],t)} {pct(s['declined'],t)}%\n\n"
-        f"💰 *Payments:* *{s['total_payments']}* times\n   Total Paid: *{s['total_paid']:,.0f} ৳*\n\n{DIVIDER}"
+        f"{em('📊')} <b>Detailed Statistics</b>\n{DIVIDER}\n\n👥 <b>Members:</b> <b>{s['total_users']}</b> active\n\n"
+        f"📁 <b>Submissions:</b> <b>{t}</b>\n"
+        f"   ✅ Approved: <b>{s['approved']}</b>  {pbar(s['approved'],t)} {pct(s['approved'],t)}%\n"
+        f"   ⏳ Pending:  <b>{s['pending']}</b>  {pbar(s['pending'],t)} {pct(s['pending'],t)}%\n"
+        f"   ❌ Declined: <b>{s['declined']}</b>  {pbar(s['declined'],t)} {pct(s['declined'],t)}%\n\n"
+        f"{em('💰')} <b>Payments:</b> <b>{s['total_payments']}</b> times\n   Total Paid: <b>{s['total_paid']:,.0f} ৳</b>\n\n{DIVIDER}"
     )
     kb = InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Back to Dashboard", callback_data="nav_back_dashboard")]])
-    await context.bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=kb)
+    await context.bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=kb)
 
 async def cmd_pending(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_admin(update.effective_user.id): await _send_pending(update.message.chat_id, context)
 
-# FIXED: HTML Escaping added to prevent special characters crash (e.g. underscores) ✅
+# sqlite3.Row object get method bypass
 async def _send_pending(chat_id, context):
     subs = db.get_pending_submissions()
     if not subs:
         await context.bot.send_message(chat_id, "✅ *No Pending Submissions Found!*", parse_mode="Markdown"); return
-    await context.bot.send_message(chat_id, f"⏳ *{len(subs)} Pending Submissions*", parse_mode="Markdown")
+    await context.bot.send_message(chat_id, f"{em('⏳')} <b>{len(subs)} Pending Submissions</b>", parse_mode="HTML")
     for sub in subs[:6]:
         sub_dict = dict(sub) # Row to Dict Conversion 
         kb = InlineKeyboardMarkup([[InlineKeyboardButton("✅  Approve", callback_data=f"approve_{sub_dict['sub_id']}"), InlineKeyboardButton("❌  Decline", callback_data=f"decline_{sub_dict['sub_id']}")]])
@@ -223,7 +248,7 @@ async def _send_pending(chat_id, context):
         except Exception as e: logger.error(f"Doc send error: {e}")
 
 
-# FIXED: Paginated 7-Days Submission History with robust HTML escaping ✅
+# FIXED: Paginated 7-Days Submission History with robust HTML escaping
 async def _send_history_paginated(chat_id, context, offset=0, edit=False, q=None):
     from datetime import datetime, timedelta # Local safe imports
     limit = 5
@@ -256,11 +281,11 @@ async def _send_history_paginated(chat_id, context, offset=0, edit=False, q=None
             await context.bot.send_message(chat_id, msg_text, parse_mode="Markdown", reply_markup=kb)
         return
 
-    text = f"📋 <b>Submission History (Last 7 Days)</b>\n<i>Page {offset//limit + 1}</i>\n{DIVIDER}\n\n"
+    text = f"{em('📋')} <b>Submission History (Last 7 Days)</b>\n<i>Page {offset//limit + 1}</i>\n{DIVIDER}\n\n"
     
     for sub in subs:
         sub_dict = dict(sub)
-        em = STATUS_EMOJI.get(sub_dict["status"], "❓")
+        em_indicator = STATUS_EMOJI.get(sub_dict["status"], "❓")
         formatted_time = fmt_dt(sub_dict["submitted_at"])
         
         # HTML Characters Escaping for each row
@@ -272,7 +297,7 @@ async def _send_history_paginated(chat_id, context, offset=0, edit=False, q=None
         safe_fname = html.escape(str(sub_dict['file_name']))
         
         text += (
-            f"{em} <b>{safe_sub_id}</b> — <i>{safe_status}</i>\n"
+            f"{em_indicator} <b>{safe_sub_id}</b> — <i>{safe_status}</i>\n"
             f"   📂 <b>Work:</b> <code>{safe_task}</code>\n"
             f"   👤 <b>User:</b> {safe_name} (@{safe_user})\n"
             f"   🪪 <b>Chat ID:</b> <code>{sub_dict['user_id']}</code>\n"
@@ -354,8 +379,8 @@ async def cb_member_detail(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text += "📋 <b>Latest Submissions:</b>\n"
         for sub in ms["subs"][:5]:
             sub_dict = dict(sub)
-            em = STATUS_EMOJI.get(sub_dict["status"], "❓")
-            text += f"   {em} <code>{sub_dict['sub_id']}</code> — {fmt_dt(sub_dict['submitted_at'])}\n"
+            em_indicator = STATUS_EMOJI.get(sub_dict["status"], "❓")
+            text += f"   {em_indicator} <code>{sub_dict['sub_id']}</code> — {fmt_dt(sub_dict['submitted_at'])}\n"
     kb = InlineKeyboardMarkup([
         [InlineKeyboardButton("💸 Send Payment", callback_data=f"quickpay_{uid}")],
         [InlineKeyboardButton("◀️ Back to Members", callback_data="nav_members"), InlineKeyboardButton("◀️ Back to Dashboard", callback_data="nav_back_dashboard")]
@@ -371,15 +396,15 @@ async def _send_payments(chat_id, context):
     if not pays:
         await context.bot.send_message(chat_id, "💰 *No payment history found.*", parse_mode="Markdown"); return
     total = sum(p["amount"] for p in pays)
-    text = f"💰 *Payment History*\n{DIVIDER}\n\n"
+    text = f"{em('💰')} <b>Payment History</b>\n{DIVIDER}\n\n"
     for pay in pays:
-        text += f"💵 *{pay['pay_id']}*\n   👤 {pay['full_name']}\n   💲 *{pay['amount']:,.0f} ৳* — {fmt_dt(pay['sent_at'])}\n\n"
-    text += f"{DIVIDER}\n💎 *Grand Total: {total:,.0f} ৳*"
+        text += f"{em('💵')} <b>{pay['pay_id']}</b>\n   👤 {pay['full_name']}\n   💲 <b>{pay['amount']:,.0f} ৳</b> — {fmt_dt(pay['sent_at'])}\n\n"
+    text += f"{DIVIDER}\n{em('💎')} <b>Grand Total: {total:,.0f} ৳</b>"
     kb = InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Back to Dashboard", callback_data="nav_back_dashboard")]])
-    await context.bot.send_message(chat_id, text, parse_mode="Markdown", reply_markup=kb)
+    await context.bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=kb)
 
 
-# Paid Who (Paginated list of paid users with inline details button - FIXED: HTML escaping added) ✅
+# Paid Who (Paginated list of paid users with inline details button - FIXED: HTML escaping added)
 async def cb_paid_who(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
@@ -411,7 +436,7 @@ async def cb_paid_who(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for p in pays:
         safe_name = html.escape(str(p['full_name']))
         safe_pay_id = html.escape(str(p['pay_id']))
-        text += f"💵 <b>{safe_pay_id}</b> | {safe_name} | <b>{p['amount']:,.0f} ৳</b>\n📅 {fmt_dt(p['sent_at'])}\n\n"
+        text += f"{em('💵')} <b>{safe_pay_id}</b> | {safe_name} | <b>{p['amount']:,.0f} ৳</b>\n📅 {fmt_dt(p['sent_at'])}\n\n"
         kb_buttons.append([InlineKeyboardButton(f"👤 Detail: {p['full_name']}", callback_data=f"member_{p['user_id']}")])
         
     navigation_row = []
@@ -595,7 +620,7 @@ async def _finalize_payment(update, context: ContextTypes.DEFAULT_TYPE):
     fid = context.user_data.get("pay_file")
     fname = context.user_data.get("pay_filename", "receipt")
     pay_id = db.add_payment(uid, amount, note, fid)
-    user_text = f"〔 💰 *Payment Notification!* 〕\n{DIVIDER}\n\n🆔 ID: `{pay_id}`\n💵 Amount: *{amount:,.0f} ৳*\n"
+    user_text = f"〔 {em('💰')} *Payment Notification!* 〕\n{DIVIDER}\n\n🆔 ID: `{pay_id}`\n💵 Amount: *{amount:,.0f} ৳*\n"
     if note: user_text += f"📝 Details: _{note}_\n"
     user_text += f"📅 Date: {fmt_dt(datetime.now().isoformat())}\n\nThank you! 🙏"
     try:
@@ -631,10 +656,10 @@ async def cb_nav_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     kb = InlineKeyboardMarkup([[InlineKeyboardButton("❌ Cancel", callback_data="bc_cancel")]])
     await q.message.reply_text(
-        f"📣 *Broadcast*\n{DIVIDER}\n\n"
+        f"{em('📣')} <b>Broadcast</b>\n{DIVIDER}\n\n"
         f"Please write the broadcast message you want to send to all members:\n\n"
         f"_Press Cancel button below to abort._",
-        parse_mode="Markdown",
+        parse_mode="HTML",
         reply_markup=kb
     )
     return BROADCAST_TEXT
@@ -653,12 +678,12 @@ async def do_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not users: await update.message.reply_text("👥 No members found."); return ConversationHandler.END
     proc = await update.message.reply_text("📣 _Broadcasting..._", parse_mode="Markdown")
     success, failed = 0, 0
-    broadcast_text = f"📣 *Matrix File Receiver*\n{DIVIDER}\n\n{msg}\n\n_{fmt_dt(datetime.now().isoformat())}_"
+    broadcast_text = f"{em('📣')} <b>Matrix File Receiver</b>\n{DIVIDER}\n\n{msg}\n\n_{fmt_dt(datetime.now().isoformat())}_"
     try:
         async with Bot(token=USER_BOT_TOKEN) as user_bot:
             for u in users:
                 try:
-                    await user_bot.send_message(chat_id=u["user_id"], text=broadcast_text, parse_mode="Markdown")
+                    await user_bot.send_message(chat_id=u["user_id"], text=broadcast_text, parse_mode="HTML")
                     success += 1
                 except: failed += 1
     except Exception as e: logger.error(f"Broadcast failed: {e}")
@@ -736,13 +761,13 @@ async def cb_submission(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if action == "approve":
         db.update_submission_status(sub_id, "approved")
         user_msg = f"〔 🎉 *File Approved!* 〕\n{DIVIDER}\n\n🆔 ID: `{sub_id}`\n📄 `{sub_dict['file_name']}`\n✅ *Approved*\n\nThank you 🙏"
-        result_line = f"\n━━━━━━━━━━━━━━━━━━\n✅ <b>APPROVED</b> — {now}"
+        result_line = f"\n━━━━━━━━━━━━━━━━━━\n{em('✔️')} <b>APPROVED</b> — {now}"
         reply_markup = InlineKeyboardMarkup([[InlineKeyboardButton("Approved ✅", callback_data="nav_done")]])
         await q.answer("✅ Approved!")
     else:
         db.update_submission_status(sub_id, "declined")
         user_msg = f"〔 ❌ *File Declined!* 〕\n{DIVIDER}\n\n🆔 ID: `{sub_id}`\n📄 `{sub_dict['file_name']}`\n❌ *Declined*"
-        result_line = f"\n━━━━━━━━━━━━━━━━━━\n❌ <b>DECLINED</b> — {now}"
+        result_line = f"\n━━━━━━━━━━━━━━━━━━\n{em('❌')} <b>DECLINED</b> — {now}"
         reply_markup = InlineKeyboardMarkup([[InlineKeyboardButton("Declined ❌", callback_data="nav_done")]])
         await q.answer("❌ Declined!")
     try:
@@ -761,7 +786,7 @@ async def cb_submission(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_testnotify(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     await update.message.reply_text("🔍 Testing... wait.")
-    info = f"📋 <b>Check:</b>\nID: <code>{uid}</code>\nADMIN_TELEGRAM_ID: <code>{ADMIN_TELEGRAM_ID}</code>\nMatch: {is_match}"
+    info = f"📋 <b>Check:</b>\nYour ID: <code>{uid}</code>\nADMIN_TELEGRAM_ID: <code>{ADMIN_TELEGRAM_ID}</code>\nMatch: {'✅' if str(uid) == str(ADMIN_TELEGRAM_ID) else '❌ MISMATCH!'}"
     await update.message.reply_text(info, parse_mode="HTML")
     try:
         async with Bot(token=USER_BOT_TOKEN) as test_bot:
@@ -792,7 +817,7 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if text == "📊 Dashboard":
         await update.message.reply_text(
             _build_dashboard_text(db.get_stats()),
-            parse_mode="Markdown",
+            parse_mode="HTML", # Changed to HTML
             reply_markup=_dashboard_keyboard()
         )
     elif text == "📈 Analytics":
@@ -800,14 +825,14 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("📋 Submit History", callback_data="nav_history"), InlineKeyboardButton("⏳ Pending", callback_data="nav_pending")],
             [InlineKeyboardButton("📊 Detailed Stats", callback_data="nav_stats")]
         ])
-        await update.message.reply_text("〔 📈 *Analytics & Reports* 〕\n" + DIVIDER + "\n\nSelect an option to view submission analytics:", parse_mode="Markdown", reply_markup=kb)
+        await update.message.reply_text("〔 📈 <b>Analytics & Reports</b> 〕\n" + DIVIDER + "\n\nSelect an option to view submission analytics:", parse_mode="HTML", reply_markup=kb)
     elif text == "💳 Payments":
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton("💸 Send Payment", callback_data="nav_sendpayment")],
             [InlineKeyboardButton("📋 Pay History", callback_data="nav_payments")],
             [InlineKeyboardButton("👥 Paid Members List", callback_data="nav_paidwho_0")]
         ])
-        await update.message.reply_text("〔 💳 *Payment Management* 〕\n" + DIVIDER + "\n\nManage user payouts and transaction history:", parse_mode="Markdown", reply_markup=kb)
+        await update.message.reply_text("〔 💳 <b>Payment Management</b> 〕\n" + DIVIDER + "\n\nManage user payouts and transaction history:", parse_mode="HTML", reply_markup=kb)
     elif text == "⚙️ Settings":
         is_open = db.is_submissions_open()
         status_btn = InlineKeyboardButton("🔒 Close Submissions" if is_open else "🔓 Open Submissions", callback_data="nav_toggle_subs_settings")
@@ -816,7 +841,7 @@ async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("👥 Members", callback_data="nav_members")],
             [status_btn]
         ])
-        await update.message.reply_text("〔 ⚙️ *Settings & Configuration* 〕\n" + DIVIDER + "\n\nAdjust your bot's operation parameters:", parse_mode="Markdown", reply_markup=kb)
+        await update.message.reply_text("〔 ⚙️ <b>Settings & Configuration</b> 〕\n" + DIVIDER + "\n\nAdjust your bot's operation parameters:", parse_mode="HTML", reply_markup=kb)
 
 
 # ── App Factory ───────────────────────────────────────────────────────────────
@@ -898,7 +923,7 @@ def create_admin_app():
     app.add_handler(CallbackQueryHandler(cb_member_detail, pattern=r"^member_\d+$"))
     app.add_handler(CallbackQueryHandler(cb_delete_task, pattern=r"^deltask_\d+$")) 
     app.add_handler(CallbackQueryHandler(cb_paid_who, pattern=r"^nav_paidwho_")) # Paid members pagination handler
-    app.add_handler(CallbackQueryHandler(cb_subhist_pagination, pattern=r"^nav_subhist_")) # Submission history pagination handler ✅
+    app.add_handler(CallbackQueryHandler(cb_subhist_pagination, pattern=r"^nav_subhist_")) # Submission history pagination handler
     
     # Text buttons dispatcher registered at the end
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_admin_text))
