@@ -791,8 +791,8 @@ async def cmd_testnotify(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Premium Emoji Rendering Test Line Added ✅
     await update.message.reply_text(
-        '💰 <b>Premium Emoji Render Test:</b>\n'
-        '<tg-emoji emoji-id="6235459831302460476">💰</tg-emoji> Matrix File Receiver',
+        '⚠ <b>Premium Emoji Render Test:</b>\n'
+        '<tg-emoji emoji-id="5420323339723881652">⚠</tg-emoji> Matrix File Receiver',
         parse_mode="HTML"
     )
     
