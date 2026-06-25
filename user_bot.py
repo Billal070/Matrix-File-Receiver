@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta, timezone # BDT Timezone tracking
 import io
 
 from telegram import (
@@ -106,7 +106,6 @@ async def btn_submit(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # Dynamic inline keyboard with cancel button
     kb_buttons = []
     for task in active_tasks:
         kb_buttons.append([InlineKeyboardButton(f"📂 {task['task_name']}", callback_data=f"seltask_{task['id']}")])
@@ -123,7 +122,7 @@ async def btn_submit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-# ── Callback handler for selecting task ────────────────────────────────────────
+# ── Callback handler for selecting task (Check Bangladesh Time Scheduled Window) ──
 async def cb_select_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
@@ -135,6 +134,44 @@ async def cb_select_task(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not task:
         await q.message.reply_text("❌ Selected work type not found."); return
 
+    # FIXED: বাংলাদেশ সময় (UTC+6) অনুযায়ী সাবমিশন সময় যাচাই করা
+    bdt_tz = timezone(timedelta(hours=6))
+    now_bdt = datetime.now(bdt_tz)
+    current_time_str = now_bdt.strftime("%H:%M") # "HH:MM" 24h format
+
+    start_time = task["start_time"] or "00:00"
+    end_time = task["end_time"] or "23:59"
+
+    # ডায়নামিক সময় তুলনা লজিক (মাঝরাত পার হওয়ার কেস সহ)
+    is_open = False
+    if start_time <= end_time:
+        is_open = start_time <= current_time_str <= end_time
+    else:
+        is_open = current_time_str >= start_time or current_time_str <= end_time
+
+    if not is_open:
+        # ২৪-ঘণ্টা ফরম্যাট থেকে ১২-ঘণ্টা AM/PM এ রূপান্তর
+        def format_12h(time_str):
+            try:
+                return datetime.strptime(time_str, "%H:%M").strftime("%I:%M %p")
+            except Exception:
+                return time_str
+
+        readable_start = format_12h(start_time)
+        readable_end = format_12h(end_time)
+
+        await q.message.reply_text(
+            f"⏳ *Work Window Closed!*\n"
+            f"{DIVIDER}\n\n"
+            f"Submission for *{task['task_name']}* is currently closed.\n\n"
+            f"⏰ *Allowed Submission Time (Bangladesh Time):*\n"
+            f"👉 **{readable_start} to {readable_end}**\n\n"
+            f"Please submit your file within the scheduled time. Thank you! 🙏",
+            parse_mode="Markdown"
+        )
+        return
+
+    # ইউজারকে ফাইল পাঠানোর স্টেট এবং মেম্বার কাজের নাম সেভ করা
     user_states[user_id] = {
         "state": "waiting_for_file",
         "task_name": task["task_name"]
@@ -164,7 +201,7 @@ async def cb_cancel_submit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await q.message.reply_text("❌ _Submission cancelled successfully._", parse_mode="Markdown", reply_markup=MENU)
 
 
-# ── My Submissions (FIXED: Row to Dict Conversion) ─────────────────────────────
+# ── My Submissions (Row to Dict Conversion) ─────────────────────────────
 async def btn_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _show_status(update)
 
@@ -199,7 +236,7 @@ async def _show_status(update: Update):
     )
 
     for sub in subs[:10]:
-        sub_dict = dict(sub) # Row অবজেক্টকে ডিকশনারিতে কনভার্ট করা হয়েছে ✅
+        sub_dict = dict(sub) # Row to Dict Conversion 
         em   = STATUS_EMOJI.get(sub_dict["status"], "❓")
         s_bn = STATUS_BN.get(sub_dict["status"], sub_dict["status"])
         task_info = f" ({sub_dict.get('task_name', 'General')})" if sub_dict.get('task_name') else ""
@@ -262,7 +299,7 @@ async def _show_payments(update: Update):
     await update.message.reply_text(text, parse_mode="Markdown")
 
 
-# ── My Account (FIXED: Row to Dict Conversion) ─────────────────────────────────
+# ── My Account (Row to Dict Conversion) ─────────────────────────────────
 async def btn_account(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _show_account(update)
 
@@ -311,7 +348,7 @@ async def _show_account(update: Update):
     )
 
     if last_sub:
-        last_sub_dict = dict(last_sub) # Row অবজেক্টকে ডিকশনারিতে কনভার্ট করা হয়েছে ✅
+        last_sub_dict = dict(last_sub) # Row to Dict Conversion 
         em = STATUS_EMOJI.get(last_sub_dict["status"], "❓")
         text += (
             f"  🕐 Latest Submission:\n"
@@ -367,7 +404,7 @@ async def _show_status_from_query(q):
         f"📦 Total: *{total}*  ✅ *{approved}*  ⏳ *{pending}*  ❌ *{declined}*\n\n{DIVIDER}\n\n"
     )
     for sub in subs[:10]:
-        sub_dict = dict(sub) # Row অবজেক্টকে ডিকশনারিতে কনভার্ট করা হয়েছে ✅
+        sub_dict = dict(sub) # Row to Dict Conversion 
         em   = STATUS_EMOJI.get(sub_dict["status"], "❓")
         s_bn = STATUS_BN.get(sub_dict["status"], sub_dict["status"])
         task_info = f" ({sub_dict.get('task_name', 'General')})" if sub_dict.get('task_name') else ""
@@ -588,6 +625,6 @@ def create_user_app():
     # Inline buttons callbacks
     app.add_handler(CallbackQueryHandler(cb_account, pattern=r"^acc_"))
     app.add_handler(CallbackQueryHandler(cb_select_task, pattern=r"^seltask_")) 
-    app.add_handler(CallbackQueryHandler(cb_cancel_submit, pattern=r"^cancel_submit$")) # Cancel Callback
+    app.add_handler(CallbackQueryHandler(cb_cancel_submit, pattern=r"^cancel_submit$")) 
 
     return app
