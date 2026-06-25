@@ -902,4 +902,4 @@ def create_admin_app():
                 MessageHandler(filters.TEXT & ~filters.COMMAND, enter_note)
             ],
             ATTACH_FILE: [
-                CommandHandler("skip", cmd_skip_f
+                CommandHandler("skip", cmd_skip_f)
