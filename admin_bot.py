@@ -88,7 +88,7 @@ def _build_dashboard_text(stats):
         f"  ✅ Approved: {pbar(stats['approved'],t)} <b>{stats['approved']}</b> ({pct(stats['approved'],t)}%)\n"
         f"  ⏳ Pending:  {pbar(stats['pending'],t)} <b>{stats['pending']}</b> ({pct(stats['pending'],t)}%)\n"
         f"  ❌ Declined: {pbar(stats['declined'],t)} <b>{stats['declined']}</b> ({pct(stats['declined'],t)}%)\n\n"
-        f"  💰 Total Paid: <b>{stats['total_paid']:,.0f} ৳</b>\n{DIVIDER}\n_Select any option_ 👇"
+        f"  {em('💰')} Total Paid: <b>{stats['total_paid']:,.0f} ৳</b>\n{DIVIDER}\n_Select any option_ 👇"
     )
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -231,7 +231,8 @@ async def _send_pending(chat_id, context):
         )
         try: await context.bot.send_document(chat_id=chat_id, document=sub_dict["file_id"], caption=cap, parse_mode="HTML", reply_markup=kb)
         except Exception as e: logger.error(f"Doc send error: {e}")
-            # FIXED: Paginated 7-Days Submission History with robust HTML escaping
+
+        # FIXED: Paginated 7-Days Submission History with robust HTML escaping
 async def _send_history_paginated(chat_id, context, offset=0, edit=False, q=None):
     from datetime import datetime, timedelta # Local safe imports
     limit = 5
@@ -627,7 +628,7 @@ async def _finalize_payment(update, context: ContextTypes.DEFAULT_TYPE):
 
 # ── Broadcast ─────────────────────────────────────────────────────────────────
 
-# FIXED: Broadcast entry point from CallbackQuery ✅
+# Broadcast entry point from CallbackQuery
 async def cb_nav_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     if not is_admin(q.from_user.id):
@@ -837,6 +838,43 @@ async def cmd_members_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_admin(update.effective_user.id): await _send_members(update.message.chat_id, context)
 async def cmd_payments_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_admin(update.effective_user.id): await _send_payments(update.message.chat_id, context)
+
+
+# FIXED: Reusable main menu reply buttons handler (ADDED to prevent NameError) ✅
+async def handle_admin_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = (update.message.text or "").strip()
+    uid = update.effective_user.id
+    if not is_admin(uid): return
+
+    if text == "📊 Dashboard":
+        await update.message.reply_text(
+            _build_dashboard_text(db.get_stats()),
+            parse_mode="HTML",
+            reply_markup=_dashboard_keyboard()
+        )
+    elif text == "📈 Analytics":
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📋 Submit History", callback_data="nav_history"), InlineKeyboardButton("⏳ Pending", callback_data="nav_pending")],
+            [InlineKeyboardButton("📊 Detailed Stats", callback_data="nav_stats")]
+        ])
+        await update.message.reply_text("〔 📈 <b>Analytics & Reports</b> 〕\n" + DIVIDER + "\n\nSelect an option to view submission analytics:", parse_mode="HTML", reply_markup=kb)
+    elif text == "💳 Payments":
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("💸 Send Payment", callback_data="nav_sendpayment")],
+            [InlineKeyboardButton("📋 Pay History", callback_data="nav_payments")],
+            [InlineKeyboardButton("👥 Paid Members List", callback_data="nav_paidwho_0")]
+        ])
+        await update.message.reply_text("〔 💳 <b>Payment Management</b> 〕\n" + DIVIDER + "\n\nManage user payouts and transaction history:", parse_mode="HTML", reply_markup=kb)
+    elif text == "⚙️ Settings":
+        is_open = db.is_submissions_open()
+        status_btn = InlineKeyboardButton("🔒 Close Submissions" if is_open else "🔓 Open Submissions", callback_data="nav_toggle_subs_settings")
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🛠️ Manage Works", callback_data="nav_manage_tasks")],
+            [InlineKeyboardButton("👥 Members", callback_data="nav_members")],
+            [status_btn]
+        ])
+        await update.message.reply_text("〔 ⚙️ <b>Settings & Configuration</b> 〕\n" + DIVIDER + "\n\nAdjust your bot's operation parameters:", parse_mode="HTML", reply_markup=kb)
+
 
 # ── App Factory ───────────────────────────────────────────────────────────────
 def create_admin_app():
