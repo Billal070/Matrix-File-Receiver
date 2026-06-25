@@ -571,4 +571,24 @@ def create_admin_app():
         entry_points=[CallbackQueryHandler(cb_add_task_init, pattern=r"^add_task_init$")],
         states={ENTER_TASK_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, enter_task_name), CallbackQueryHandler(cb_cancel_task_callback, pattern=r"^task_cancel$")]},
         fallbacks=[CommandHandler("cancel", cmd_cancel_task)],
-        per_message=Fa
+        per_message=False, allow_reentry=True
+    )
+    app.add_handler(pay_conv); app.add_handler(bc_conv); app.add_handler(task_conv)
+    app.add_handler(CommandHandler("myid", cmd_myid))
+    app.add_handler(CommandHandler("testnotify", cmd_testnotify))
+    app.add_handler(CommandHandler("start", cmd_start))
+    app.add_handler(CommandHandler("stats", cmd_stats))
+    app.add_handler(CommandHandler("pending", cmd_pending))
+    app.add_handler(CommandHandler("history", cmd_history_cmd))
+    app.add_handler(CommandHandler("members", cmd_members_cmd))
+    app.add_handler(CommandHandler("payments", cmd_payments_cmd))
+    app.add_handler(CommandHandler("testemoji", cmd_testemoji))
+    app.add_handler(CommandHandler("debuginfo", cmd_debuginfo))
+    app.add_handler(CallbackQueryHandler(cb_nav, pattern=r"^nav_"))
+    app.add_handler(CallbackQueryHandler(cb_submission, pattern=r"^(approve|decline)_"))
+    app.add_handler(CallbackQueryHandler(cb_member_detail, pattern=r"^member_\d+$"))
+    app.add_handler(CallbackQueryHandler(cb_delete_task, pattern=r"^deltask_\d+$"))
+    app.add_handler(CallbackQueryHandler(cb_paid_who, pattern=r"^nav_paidwho_"))
+    app.add_handler(CallbackQueryHandler(cb_subhist_pagination, pattern=r"^nav_subhist_"))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_admin_text))
+    return app
