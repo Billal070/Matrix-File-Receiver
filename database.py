@@ -63,7 +63,14 @@ def init_db():
     try:
         db.execute("ALTER TABLE submissions ADD COLUMN task_name TEXT DEFAULT 'General'")
     except sqlite3.OperationalError:
-        pass  # কলাম অলরেডি মাইগ্রেট হয়ে থাকলে ইগনোর করবে
+        pass
+
+    # FIXED: tasks টেবিলে সময় নিয়ন্ত্রণ করার জন্য start_time ও end_time কলাম যুক্ত করা হয়েছে
+    try:
+        db.execute("ALTER TABLE tasks ADD COLUMN start_time TEXT DEFAULT '00:00'")
+        db.execute("ALTER TABLE tasks ADD COLUMN end_time TEXT DEFAULT '23:59'")
+    except sqlite3.OperationalError:
+        pass
 
     # ডিফল্ট সেটিংস ইনসার্ট
     db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('submissions_open', '1')")
@@ -92,10 +99,13 @@ def set_submissions_open(status: bool):
 
 # ── Tasks Management Helpers ──────────────────────────────────────────────────
 
-def add_task(task_name):
+def add_task(task_name, start_time="00:00", end_time="23:59"):
     db = _conn()
     try:
-        db.execute("INSERT INTO tasks (task_name, created_at) VALUES (?, ?)", (task_name, datetime.now().isoformat()))
+        db.execute(
+            "INSERT INTO tasks (task_name, start_time, end_time, created_at) VALUES (?, ?, ?, ?)", 
+            (task_name, start_time, end_time, datetime.now().isoformat())
+        )
         db.commit()
         success = True
     except sqlite3.IntegrityError:
@@ -157,7 +167,7 @@ def get_all_users():
     return rows
 
 
-# ── Submissions (Updated with task_name parameter) ───────────────────────────
+# ── Submissions ───────────────────────────────────────────────────────────────
 
 def add_submission(user_id, file_id, file_name, caption="", task_name="General"):
     db = _conn()
